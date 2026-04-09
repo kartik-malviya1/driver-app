@@ -1,53 +1,31 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * App theme — primary green (#2E8536) and orange (#D16E2E),
+ * complemented by black, white, and neutral grays.
  */
 
-import { Platform } from 'react-native';
+export const Theme = {
+    colors: {
+        green: '#2E8536',
+        greenLight: '#3AA644',
+        greenPale: '#E8F5E9',
+        complete: "#009f00ff",
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+        orange: '#D16E2E',
+        orangeLight: '#E8894A',
+        orangePale: '#FDF0E8',
 
-export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
-  dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-  },
+        black: '#111111',
+        darkGray: '#191919ff',
+        gray: '#666666',
+        lightGray: '#999999',
+        review: "#1A73E8",
+        border: '#E5E5E5',
+        surface: '#F5F5F5',
+        white: '#FFFFFF',
+
+        danger: '#D32F2F',
+        dangerPale: '#FFEBEE',
+    },
 };
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
+export default Theme;
