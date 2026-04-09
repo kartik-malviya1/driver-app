@@ -1,5 +1,7 @@
 import { useRouter } from 'expo-router';
+import { CheckCircle2Icon } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
+
 import {
     Alert,
     KeyboardAvoidingView,
@@ -117,20 +119,22 @@ export default function SignupScreen() {
                         />
 
                         {/* Phone — pre-filled if came from phone screen, editable otherwise */}
-                        <Input
-                            label={cameFromPhoneStep ? 'Mobile number' : 'Mobile number'}
-                            placeholder="9876543210"
-                            value={phone}
-                            onChangeText={setPhone}
-                            aria-disabled={true}
-                            keyboardType="phone-pad"
-                            maxLength={10}
-                            editable={!cameFromPhoneStep}
-                        />
+                        <View style={styles.phoneWrapper}>
+                            <Text style={styles.label}>Mobile number</Text>
 
+                            <View style={styles.phoneBox}>
+                                <Text style={styles.phoneText}>+91 {phone}</Text>
+
+                                {cameFromPhoneStep && (
+                                    <View className='flex-row items-center gap-1 rounded-full px-2 py-1'>
+                                        <CheckCircle2Icon size={22} color={Theme.colors.green} />
+                                    </View>
+                                )}
+                            </View>
+                        </View>
                         <Input
                             label="Password"
-                            placeholder="Create a password (min 6 chars)"
+                            placeholder="Create a password (min 6 characters)"
                             value={password}
                             onChangeText={setPassword}
                             secureTextEntry
@@ -169,6 +173,46 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
         paddingTop: 16,
         paddingBottom: 24,
+    },
+    phoneWrapper: {
+        marginBottom: 16,
+    },
+
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginBottom: 6,
+        color: Theme.colors.gray,
+    },
+
+    phoneBox: {
+        height: 56,
+        borderWidth: 1,
+        borderColor: Theme.colors.border,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#f9f9f9',
+    },
+
+    phoneText: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: Theme.colors.gray,
+    },
+
+    // verifiedBadge: {
+    //     flexDirection: 'row',
+    //     alignItems: 'center',
+    //     gap: 6,
+    // },
+
+    verifiedText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: Theme.colors.green,
     },
     miniLogo: {
         width: 44,

@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
         backgroundColor: Theme.colors.danger,
     },
     disabledButton: {
-        opacity: 0.45,
+        backgroundColor: Theme.colors.green + '88',
     },
     text: {
         fontSize: 17,

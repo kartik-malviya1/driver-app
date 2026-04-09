@@ -77,7 +77,7 @@ export default function SplashScreen() {
                 </Text>
             </View>
 
-            {/* IMAGE */}
+            {/* IMAGE (edge anchored like Rapido/Uber) */}
             <Image
                 source={require('../assets/images/autosplash.png')}
                 style={styles.image}
