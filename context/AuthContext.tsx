@@ -1,55 +1,89 @@
-import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import {
+  clearToken,
+  getStoredUser,
+  getToken,
+  setStoredUser,
+  setToken,
+} from '../services/api';
+
+interface AuthUser {
+  id: number;
+  name: string;
+  role: string;
+}
 
 interface AuthContextType {
-    session: Session | null;
-    user: User | null;
-    loading: boolean;
-    signOut: () => Promise<void>;
+  token: string | null;
+  user: AuthUser | null;
+  loading: boolean;
+  isAuthenticated: boolean;
+  loginWithToken: (token: string, user: AuthUser) => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
-    session: null,
-    user: null,
-    loading: true,
-    signOut: async () => { },
+  token: null,
+  user: null,
+  loading: true,
+  isAuthenticated: false,
+  loginWithToken: async () => {},
+  signOut: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-    const [session, setSession] = useState<Session | null>(null);
-    const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
+  const [token, setTokenState] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        // Check for initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            setLoading(false);
-        });
+  // On mount: check AsyncStorage for existing session
+  useEffect(() => {
+    (async () => {
+      try {
+        const [savedToken, savedUser] = await Promise.all([
+          getToken(),
+          getStoredUser(),
+        ]);
 
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            setLoading(false);
-        });
+        if (savedToken && savedUser) {
+          setTokenState(savedToken);
+          setUser(savedUser);
+        }
+      } catch (err) {
+        console.error('Error restoring auth state:', err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-        return () => {
-            subscription.unsubscribe();
-        };
-    }, []);
+  const loginWithToken = async (newToken: string, newUser: AuthUser) => {
+    await setToken(newToken);
+    await setStoredUser(newUser);
+    setTokenState(newToken);
+    setUser(newUser);
+  };
 
-    const signOut = async () => {
-        await supabase.auth.signOut();
-    };
+  const signOut = async () => {
+    await clearToken();
+    setTokenState(null);
+    setUser(null);
+  };
 
-    return (
-        <AuthContext.Provider value={{ session, user, loading, signOut }}>
-            {children}
-        </AuthContext.Provider>
-    );
+  return (
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        loading,
+        isAuthenticated: !!token,
+        loginWithToken,
+        signOut,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => useContext(AuthContext);

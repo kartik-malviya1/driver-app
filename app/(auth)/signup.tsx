@@ -1,7 +1,6 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CheckCircle2Icon } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
-
 import {
     Alert,
     KeyboardAvoidingView,
@@ -16,70 +15,58 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { Theme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
 import { useOnboarding } from '../../hooks/useOnboarding';
-import { supabase } from '../../lib/supabase';
+import { signup } from '../../services/api';
 
 export default function SignupScreen() {
     const router = useRouter();
+    const params = useLocalSearchParams<{ phoneNumber: string }>();
+    const { loginWithToken } = useAuth();
     const { state, saveFullName, savePhone } = useOnboarding();
 
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // Pre-fill phone if it was entered in the phone step
+    // Pre-fill phone from params or onboarding state
     useEffect(() => {
-        if (state.phone) {
+        const phoneNumber = params.phoneNumber || state.phone || '';
+        if (phoneNumber) {
             // Strip country code prefix for display
-            const stripped = state.phone.startsWith('+91')
-                ? state.phone.slice(3)
-                : state.phone;
+            const stripped = phoneNumber.startsWith('+91')
+                ? phoneNumber.slice(3)
+                : phoneNumber;
             setPhone(stripped);
         }
-    }, [state.phone]);
+    }, [params.phoneNumber, state.phone]);
 
-    const cameFromPhoneStep = !!state.phone;
+    const fullPhoneNumber = phone.startsWith('+91') ? phone : `+91${phone.replace(/\s/g, '')}`;
 
     const handleSignup = async () => {
-        if (!email || !password || !fullName) return;
+        if (!fullName) return;
 
         setLoading(true);
         try {
-            const { error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: {
-                        full_name: fullName,
-                        user_type: 'driver',
-                        phone: cameFromPhoneStep ? state.phone : `+91${phone}`,
-                    },
-                },
-            });
-
-            if (error) {
-                Alert.alert('Signup Error', error.message);
-            } else {
-                // Persist name for onboarding checklist
-                await saveFullName(fullName);
-                // Persist phone if entered here (not from phone step)
-                if (!cameFromPhoneStep && phone.length === 10) {
-                    await savePhone(`+91${phone}`);
-                }
-
-                router.replace('/(onboarding)/vehicle-type');
+            // Persist name and email for later registration
+            await saveFullName(fullName);
+            if (email) await saveEmail(email);
+            
+            if (!state.phone) {
+                await savePhone(fullPhoneNumber);
             }
-        } catch (err) {
-            console.error('Unexpected signup error:', err);
-            Alert.alert('Error', 'An unexpected error occurred.');
+
+            router.replace('/(onboarding)/vehicle-type');
+        } catch (err: any) {
+            console.error('Signup error:', err);
+            Alert.alert('Signup Error', err.message || 'An unexpected error occurred.');
         } finally {
             setLoading(false);
         }
     };
 
-    const isFormValid = fullName.length > 0 && email.length > 0 && password.length >= 6;
+    const isFormValid = fullName.length > 0;
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -110,7 +97,7 @@ export default function SignupScreen() {
                         />
 
                         <Input
-                            label="Email address"
+                            label="Email address (optional)"
                             placeholder="name@example.com"
                             value={email}
                             onChangeText={setEmail}
@@ -118,27 +105,18 @@ export default function SignupScreen() {
                             autoCapitalize="none"
                         />
 
-                        {/* Phone — pre-filled if came from phone screen, editable otherwise */}
+                        {/* Phone — pre-filled and verified */}
                         <View style={styles.phoneWrapper}>
                             <Text style={styles.label}>Mobile number</Text>
 
                             <View style={styles.phoneBox}>
                                 <Text style={styles.phoneText}>+91 {phone}</Text>
 
-                                {cameFromPhoneStep && (
-                                    <View className='flex-row items-center gap-1 rounded-full px-2 py-1'>
-                                        <CheckCircle2Icon size={22} color={Theme.colors.green} />
-                                    </View>
-                                )}
+                                <View className='flex-row items-center gap-1 rounded-full px-2 py-1'>
+                                    <CheckCircle2Icon size={22} color={Theme.colors.green} />
+                                </View>
                             </View>
                         </View>
-                        <Input
-                            label="Password"
-                            placeholder="Create a password (min 6 characters)"
-                            value={password}
-                            onChangeText={setPassword}
-                            secureTextEntry
-                        />
 
                         <Button
                             title="Create Account"
@@ -149,7 +127,7 @@ export default function SignupScreen() {
 
                         <View style={styles.footer}>
                             <Text style={styles.footerText}>Already have an account? </Text>
-                            <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
+                            <TouchableOpacity onPress={() => router.replace('/(auth)/phone')}>
                                 <Text style={styles.linkText}>Log In</Text>
                             </TouchableOpacity>
                         </View>
@@ -177,14 +155,12 @@ const styles = StyleSheet.create({
     phoneWrapper: {
         marginBottom: 16,
     },
-
     label: {
         fontSize: 14,
         fontWeight: '600',
         marginBottom: 6,
         color: Theme.colors.gray,
     },
-
     phoneBox: {
         height: 56,
         borderWidth: 1,
@@ -196,23 +172,10 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         backgroundColor: '#f9f9f9',
     },
-
     phoneText: {
         fontSize: 16,
         fontWeight: '500',
         color: Theme.colors.gray,
-    },
-
-    // verifiedBadge: {
-    //     flexDirection: 'row',
-    //     alignItems: 'center',
-    //     gap: 6,
-    // },
-
-    verifiedText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: Theme.colors.green,
     },
     miniLogo: {
         width: 44,

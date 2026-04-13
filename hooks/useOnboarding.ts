@@ -4,9 +4,15 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 const KEYS = {
     PHONE: '@driver_app/phone',
     VEHICLE_TYPE: '@driver_app/vehicle_type',
+    VEHICLE_NUMBER: '@driver_app/vehicle_number',
+    LICENSE_NUMBER: '@driver_app/license_number',
+    LICENSE_URL: '@driver_app/license_url',
+    AADHAAR_URL: '@driver_app/aadhaar_url',
+    PHOTO_URL: '@driver_app/photo_url',
     DOCS: '@driver_app/docs',
     ONBOARDING_DONE: '@driver_app/onboarding_done',
     FULL_NAME: '@driver_app/full_name',
+    EMAIL: '@driver_app/email',
 };
 
 export type DocKey = 'profile_photo' | 'aadhaar' | 'rc' | 'driving_license' | 'language';
@@ -23,7 +29,13 @@ export const DEFAULT_DOCS: Record<DocKey, DocStatus> = {
 export interface OnboardingState {
     phone: string | null;
     fullName: string | null;
+    email: string | null;
     vehicleType: string | null;
+    vehicleNumber: string | null;
+    licenseNumber: string | null;
+    licensePhotoUrl: string | null;
+    aadhaarCardPhotoUrl: string | null;
+    photoUrl: string | null;
     docs: Record<DocKey, DocStatus>;
     isOnboardingDone: boolean;
 }
@@ -32,7 +44,13 @@ function useOnboardingBase() {
     const [state, setState] = useState<OnboardingState>({
         phone: null,
         fullName: null,
+        email: null,
         vehicleType: null,
+        vehicleNumber: null,
+        licenseNumber: null,
+        licensePhotoUrl: null,
+        aadhaarCardPhotoUrl: null,
+        photoUrl: null,
         docs: DEFAULT_DOCS,
         isOnboardingDone: false,
     });
@@ -40,9 +58,12 @@ function useOnboardingBase() {
 
     const load = useCallback(async () => {
         try {
-            const results = await AsyncStorage.multiGet([
-                KEYS.PHONE, KEYS.VEHICLE_TYPE, KEYS.DOCS, KEYS.ONBOARDING_DONE, KEYS.FULL_NAME,
-            ]);
+            const keys = [
+                KEYS.PHONE, KEYS.VEHICLE_TYPE, KEYS.VEHICLE_NUMBER, KEYS.LICENSE_NUMBER,
+                KEYS.LICENSE_URL, KEYS.AADHAAR_URL, KEYS.PHOTO_URL, KEYS.DOCS,
+                KEYS.ONBOARDING_DONE, KEYS.FULL_NAME, KEYS.EMAIL
+            ];
+            const results = await AsyncStorage.multiGet(keys);
             const map = Object.fromEntries(results.map(([k, v]) => [k, v]));
             let parsedDocs = map[KEYS.DOCS] ? JSON.parse(map[KEYS.DOCS] as string) : DEFAULT_DOCS;
             // Force language to be completed even if cached state says pending
@@ -51,7 +72,13 @@ function useOnboardingBase() {
             setState({
                 phone: map[KEYS.PHONE] ?? null,
                 fullName: map[KEYS.FULL_NAME] ?? null,
+                email: map[KEYS.EMAIL] ?? null,
                 vehicleType: map[KEYS.VEHICLE_TYPE] ?? null,
+                vehicleNumber: map[KEYS.VEHICLE_NUMBER] ?? null,
+                licenseNumber: map[KEYS.LICENSE_NUMBER] ?? null,
+                licensePhotoUrl: map[KEYS.LICENSE_URL] ?? null,
+                aadhaarCardPhotoUrl: map[KEYS.AADHAAR_URL] ?? null,
+                photoUrl: map[KEYS.PHOTO_URL] ?? null,
                 docs: parsedDocs,
                 isOnboardingDone: map[KEYS.ONBOARDING_DONE] === 'true',
             });
@@ -72,9 +99,42 @@ function useOnboardingBase() {
         setState(prev => ({ ...prev, fullName }));
     };
 
+    const saveEmail = async (email: string) => {
+        await AsyncStorage.setItem(KEYS.EMAIL, email);
+        setState(prev => ({ ...prev, email }));
+    };
+
     const saveVehicleType = async (vehicleType: string) => {
         await AsyncStorage.setItem(KEYS.VEHICLE_TYPE, vehicleType);
         setState(prev => ({ ...prev, vehicleType }));
+    };
+
+    const saveVehicleNumber = async (vehicleNumber: string) => {
+        await AsyncStorage.setItem(KEYS.VEHICLE_NUMBER, vehicleNumber);
+        setState(prev => ({ ...prev, vehicleNumber }));
+    };
+
+    const saveLicenseNumber = async (licenseNumber: string) => {
+        await AsyncStorage.setItem(KEYS.LICENSE_NUMBER, licenseNumber);
+        setState(prev => ({ ...prev, licenseNumber }));
+    };
+
+    const saveDocUrl = async (doc: DocKey, url: string) => {
+        let key = '';
+        if (doc === 'driving_license') key = KEYS.LICENSE_URL;
+        else if (doc === 'aadhaar') key = KEYS.AADHAAR_URL;
+        else if (doc === 'profile_photo') key = KEYS.PHOTO_URL;
+
+        if (key) {
+            await AsyncStorage.setItem(key, url);
+            setState(prev => {
+                const newState = { ...prev };
+                if (doc === 'driving_license') newState.licensePhotoUrl = url;
+                else if (doc === 'aadhaar') newState.aadhaarCardPhotoUrl = url;
+                else if (doc === 'profile_photo') newState.photoUrl = url;
+                return newState;
+            });
+        }
     };
 
     const updateDocStatus = async (doc: DocKey, status: DocStatus) => {
@@ -90,7 +150,19 @@ function useOnboardingBase() {
 
     const resetOnboarding = async () => {
         await AsyncStorage.multiRemove(Object.values(KEYS));
-        setState({ phone: null, fullName: null, vehicleType: null, docs: DEFAULT_DOCS, isOnboardingDone: false });
+        setState({
+            phone: null,
+            fullName: null,
+            email: null,
+            vehicleType: null,
+            vehicleNumber: null,
+            licenseNumber: null,
+            licensePhotoUrl: null,
+            aadhaarCardPhotoUrl: null,
+            photoUrl: null,
+            docs: DEFAULT_DOCS,
+            isOnboardingDone: false
+        });
     };
 
     // Computed helpers
@@ -107,7 +179,11 @@ function useOnboardingBase() {
         nextPendingDoc,
         savePhone,
         saveFullName,
+        saveEmail,
         saveVehicleType,
+        saveVehicleNumber,
+        saveLicenseNumber,
+        saveDocUrl,
         updateDocStatus,
         completeOnboarding,
         resetOnboarding,

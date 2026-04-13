@@ -1,43 +1,23 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React from 'react';
+import {
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
 import { Theme } from '../../constants/theme';
-import { useOnboarding } from '../../hooks/useOnboarding';
-import { supabase } from '../../lib/supabase';
 
+/**
+ * Login screen — now redirects to phone-based OTP flow.
+ * Password-based login has been removed.
+ */
 export default function LoginScreen() {
-    const { completeOnboarding } = useOnboarding();
     const router = useRouter();
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
-
-    const handleLogin = async () => {
-        if (!email || !password) return;
-
-        setLoading(true);
-        try {
-            const { error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
-
-            if (error) {
-                Alert.alert('Login Error', error.message);
-            } else {
-                console.log('Login successful');
-                await completeOnboarding();
-            }
-        } catch (error) {
-            console.error('Unexpected login error:', error);
-            Alert.alert('Error', 'An unexpected error occurred.');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -56,33 +36,17 @@ export default function LoginScreen() {
 
                     <View style={styles.headerContainer}>
                         <Text style={styles.headerText}>Welcome back</Text>
-                        <Text style={styles.subheaderText}>Sign in to start accepting rides</Text>
+                        <Text style={styles.subheaderText}>Sign in with your phone number to start accepting rides</Text>
                     </View>
 
                     <View style={styles.formContainer}>
-                        <Input
-                            label="Email"
-                            placeholder="name@example.com"
-                            value={email}
-                            onChangeText={setEmail}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                        />
-
-                        <Input
-                            label="Password"
-                            placeholder="Enter your password"
-                            value={password}
-                            onChangeText={setPassword}
-                            secureTextEntry
-                        />
-
-                        <Button
-                            title="Sign In"
-                            onPress={handleLogin}
-                            disabled={!email || !password}
-                            loading={loading}
-                        />
+                        <TouchableOpacity
+                            style={styles.phoneLoginBtn}
+                            onPress={() => router.replace('/(auth)/phone')}
+                            activeOpacity={0.85}
+                        >
+                            <Text style={styles.phoneLoginText}>Continue with Phone Number</Text>
+                        </TouchableOpacity>
 
                         <View style={styles.footer}>
                             <Text style={styles.footerText}>Don't have an account? </Text>
@@ -153,6 +117,19 @@ const styles = StyleSheet.create({
     },
     formContainer: {
         flex: 1,
+    },
+    phoneLoginBtn: {
+        height: 56,
+        backgroundColor: Theme.colors.green,
+        borderRadius: 14,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 20,
+    },
+    phoneLoginText: {
+        color: Theme.colors.white,
+        fontSize: 16,
+        fontWeight: '700',
     },
     footer: {
         flexDirection: 'row',

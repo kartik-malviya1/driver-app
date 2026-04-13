@@ -16,7 +16,7 @@ export default function AccountScreen() {
     const handleSignOut = async () => {
         await resetOnboarding();
         await signOut();
-        router.replace('/(auth)/login');
+        router.replace('/(auth)/phone');
     };
 
     const renderMenuItem = (icon: string, title: string, subtitle?: string, color: string = Theme.colors.black, onPress?: () => void) => (
@@ -52,12 +52,12 @@ export default function AccountScreen() {
                 <View style={styles.profileCard}>
                     <View style={styles.avatarContainer}>
                         <Text style={styles.avatarText}>
-                            {user?.email?.charAt(0).toUpperCase() || 'U'}
+                            {user?.name?.charAt(0).toUpperCase() || 'U'}
                         </Text>
                     </View>
                     <View style={styles.userInfo}>
-                        <Text style={styles.userName}>Driver Partner</Text>
-                        <Text style={styles.userEmail}>{user?.email}</Text>
+                        <Text style={styles.userName}>{user?.name || 'Driver Partner'}</Text>
+                        <Text style={styles.userEmail}>Driver ID: {user?.id}</Text>
                         <View style={styles.ratingBadge}>
                             <Ionicons name="star" size={12} color={Theme.colors.orange} />
                             <Text style={styles.ratingText}>4.95</Text>

@@ -6,6 +6,7 @@ import {
     Alert,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
@@ -58,9 +59,10 @@ function LoadingOverlay({ phase }: { phase: 'uploading' | 'verifying' }) {
 export default function UploadScreen() {
     const router = useRouter();
     const { doc } = useLocalSearchParams<{ doc: DocKey }>();
-    const { updateDocStatus } = useOnboarding();
+    const { state: onboardingState, updateDocStatus, saveDocUrl, saveLicenseNumber } = useOnboarding();
 
     const [phase, setPhase] = useState<UploadPhase>('idle');
+    const [licenseNumber, setLicenseNumber] = useState(onboardingState.licenseNumber || '');
     const [pickedImage, setPickedImage] = useState<string | null>(null);
 
     const meta = DOC_META[doc] ?? DOC_META['profile_photo'];
@@ -89,8 +91,16 @@ export default function UploadScreen() {
         setPhase('verifying');
         await delay(500);
 
-        // Step 3: Mark as in_review in AsyncStorage
-        await updateDocStatus(doc, 'in_review');
+        // Step 3: Save dummy URL and metadata
+        const dummyUrl = `https://example.com/uploads/${doc}_${Date.now()}.jpg`;
+        await saveDocUrl(doc, dummyUrl);
+        
+        if (doc === 'driving_license') {
+            await saveLicenseNumber(licenseNumber);
+        }
+
+        // Mark as in_review / completed
+        await updateDocStatus(doc, 'completed');
         setPhase('done');
 
         // Go back to checklist
@@ -130,6 +140,22 @@ export default function UploadScreen() {
                     <Text style={styles.uploadAreaTitle}>Tap to upload</Text>
                     <Text style={styles.uploadAreaSubtitle}>Photo or document</Text>
                 </TouchableOpacity>
+
+                {/* Additional Inputs based on Doc type */}
+                {doc === 'driving_license' && (
+                    <View style={styles.inputContainer}>
+                        <Text style={styles.inputLabel}>License Number</Text>
+                        <View style={styles.textInputBox}>
+                            <TextInput
+                                style={styles.textInput}
+                                placeholder="e.g. DL-1234567890"
+                                value={licenseNumber}
+                                onChangeText={setLicenseNumber}
+                                autoCapitalize="characters"
+                            />
+                        </View>
+                    </View>
+                )}
 
                 {/* Tips */}
                 <View style={styles.tipsBox}>
@@ -274,5 +300,30 @@ const styles = StyleSheet.create({
         color: Theme.colors.black,
         textAlign: 'center',
         letterSpacing: -0.3,
+    },
+    inputContainer: {
+        marginBottom: 28,
+    },
+    inputLabel: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: Theme.colors.gray,
+        marginBottom: 8,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    textInputBox: {
+        height: 56,
+        borderWidth: 1.5,
+        borderColor: Theme.colors.green,
+        borderRadius: 12,
+        backgroundColor: Theme.colors.greenPale,
+        paddingHorizontal: 16,
+        justifyContent: 'center',
+    },
+    textInput: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: Theme.colors.black,
     },
 });

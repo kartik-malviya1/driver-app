@@ -3,6 +3,8 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     ScrollView,
     StyleSheet,
     Text,
@@ -12,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../../constants/theme';
 import { DocKey, DocStatus, useOnboarding } from '../../hooks/useOnboarding';
+import { signup as apiSignup } from '../../services/api';
 
 interface DocItem {
     key: DocKey;
@@ -53,11 +56,41 @@ export default function ChecklistScreen() {
         router.replace('/(auth)/login');
     };
     const { state, completedCount, pendingCount, nextPendingDoc, completeOnboarding } = useOnboarding();
+    const { loginWithToken } = useAuth();
+    const [isFinishing, setIsFinishing] = React.useState(false);
 
     const handleFinish = async () => {
-        completeOnboarding();
-        router.replace('/home');
-        ;
+        if (pendingCount > 0 || isFinishing) return;
+
+        setIsFinishing(true);
+        try {
+            const signupData = {
+                name: state.fullName || '',
+                email: state.email || '',
+                phoneNumber: state.phone || '',
+                vehicleNumber: state.vehicleNumber || '',
+                licenseNumber: state.licenseNumber || '',
+                licensePhotoUrl: state.licensePhotoUrl || '',
+                AadhaarCardPhotoUrl: state.aadhaarCardPhotoUrl || '',
+                photoUrl: state.photoUrl || '',
+            };
+
+            const result = await apiSignup(signupData);
+
+            // 1. Log in with returned JWT
+            await loginWithToken(result.token, result.user);
+
+            // 2. Mark onboarding as done
+            await completeOnboarding();
+
+            // 3. Go home
+            router.replace('/home');
+        } catch (err: any) {
+            console.error('Final signup error:', err);
+            Alert.alert('Registration Failed', err.message || 'Could not complete registration. Please try again.');
+        } finally {
+            setIsFinishing(false);
+        }
     };
 
     const firstName = state.fullName?.split(' ')[0] ?? 'Driver';
@@ -146,8 +179,18 @@ export default function ChecklistScreen() {
             {/* Finish Button floating at bottom right */}
             {pendingCount === 0 && (
                 <View style={styles.fabContainer}>
-                    <TouchableOpacity style={styles.fab} onPress={handleFinish} activeOpacity={0.85}>
-                        <Text style={styles.fabText}>Next ➔</Text>
+                    <TouchableOpacity 
+                        style={[styles.fab, isFinishing && { opacity: 0.8 }]} 
+                        onPress={handleFinish} 
+                        activeOpacity={0.85}
+                        disabled={isFinishing}
+                    >
+                        {isFinishing ? (
+                            <ActivityIndicator color={Theme.colors.white} style={{ marginRight: 8 }} />
+                        ) : null}
+                        <Text style={styles.fabText}>
+                            {isFinishing ? 'Registering...' : 'Next ➔'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             )}

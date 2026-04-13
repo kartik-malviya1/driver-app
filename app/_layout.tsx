@@ -11,7 +11,7 @@ import { GluestackUIProvider } from '@/components/ui/gluestack-ui-provider';
 import '@/global.css';
 
 function RootLayoutNav() {
-    const { session, loading: authLoading } = useAuth();
+    const { isAuthenticated, loading: authLoading } = useAuth();
     const { state: onboarding, loading: onboardingLoading } = useOnboarding();
     const segments = useSegments() as unknown as string[];
     const router = useRouter();
@@ -24,7 +24,7 @@ function RootLayoutNav() {
         const onSplash = segments.length === 0;
 
         // If user is authenticated
-        if (session) {
+        if (isAuthenticated) {
             if (onboarding.isOnboardingDone) {
                 if (inAuthGroup || inOnboardingGroup || onSplash) {
                     router.replace('/home');
@@ -40,12 +40,12 @@ function RootLayoutNav() {
             }
         }
         // If user is NOT logged in
-        if (!session) {
+        if (!isAuthenticated) {
             if (segments[0] === 'home') {
                 router.replace('/');
             }
         }
-    }, [session, authLoading, onboardingLoading, segments, onboarding.isOnboardingDone]);
+    }, [isAuthenticated, authLoading, onboardingLoading, segments, onboarding.isOnboardingDone]);
 
     if (authLoading || onboardingLoading) {
         return (

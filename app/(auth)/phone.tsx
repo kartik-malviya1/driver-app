@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useRef, useState } from 'react';
 import {
+    Alert,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
@@ -13,20 +14,39 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../../constants/theme';
 import { useOnboarding } from '../../hooks/useOnboarding';
+import { sendOtp } from '../../services/api';
 
 export default function PhoneScreen() {
     const router = useRouter();
     const { savePhone } = useOnboarding();
     const [phone, setPhone] = useState('');
     const [countryCode] = useState('+91');
+    const [loading, setLoading] = useState(false);
     const inputRef = useRef<TextInput>(null);
 
     const isValid = phone.replace(/\s/g, '').length === 10;
 
     const handleContinue = async () => {
-        if (!isValid) return;
-        await savePhone(`${countryCode}${phone.replace(/\s/g, '')}`);
-        router.push('/(auth)/otp');
+        if (!isValid || loading) return;
+
+        const cleanPhone = `${countryCode}${phone.replace(/\s/g, '')}`;
+        setLoading(true);
+
+        try {
+            const result = await sendOtp(cleanPhone);
+            await savePhone(cleanPhone);
+
+            // Navigate to OTP screen with params
+            router.push({
+                pathname: '/(auth)/otp',
+                params: { phoneNumber: cleanPhone, exists: result.exists ? '1' : '0' },
+            });
+        } catch (error: any) {
+            console.error('Send OTP error:', error);
+            Alert.alert('Error', error.message || 'Failed to send OTP. Please try again.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const formatPhone = (text: string) => {
@@ -90,12 +110,14 @@ export default function PhoneScreen() {
 
                 <View style={styles.footer}>
                     <TouchableOpacity
-                        style={[styles.continueBtn, !isValid && styles.continueBtnDisabled]}
+                        style={[styles.continueBtn, (!isValid || loading) && styles.continueBtnDisabled]}
                         onPress={handleContinue}
-                        disabled={!isValid}
+                        disabled={!isValid || loading}
                         activeOpacity={0.85}
                     >
-                        <Text style={styles.continueBtnText}>Continue →</Text>
+                        <Text style={styles.continueBtnText}>
+                            {loading ? 'Sending OTP...' : 'Continue →'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>

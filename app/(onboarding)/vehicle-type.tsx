@@ -5,6 +5,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -47,11 +48,13 @@ const TagBadge = ({ label }: { label: string }) => (
 
 export default function VehicleTypeScreen() {
     const router = useRouter();
-    const { saveVehicleType } = useOnboarding();
-    const [selected, setSelected] = useState<string>('auto_rickshaw');
+    const { state: onboardingState, saveVehicleType, saveVehicleNumber } = useOnboarding();
+    const [selected, setSelected] = useState<string>(onboardingState.vehicleType || 'auto_rickshaw');
+    const [vehicleNumber, setVehicleNumber] = useState(onboardingState.vehicleNumber || '');
 
     const handleContinue = async () => {
         await saveVehicleType(selected);
+        await saveVehicleNumber(vehicleNumber);
         router.replace('/(onboarding)/checklist');
     };
 
@@ -100,11 +103,30 @@ export default function VehicleTypeScreen() {
                         );
                     })}
                 </View>
+
+                {/* Vehicle Number Input */}
+                <View style={styles.inputContainer}>
+                    <Text style={styles.inputLabel}>Vehicle Registration Number</Text>
+                    <View style={styles.textInputBox}>
+                        <TextInput
+                            style={styles.textInput}
+                            placeholder="e.g. MP04 AB 1234"
+                            value={vehicleNumber}
+                            onChangeText={setVehicleNumber}
+                            autoCapitalize="characters"
+                        />
+                    </View>
+                </View>
             </ScrollView>
 
             {/* Continue button */}
             <View style={styles.footer}>
-                <TouchableOpacity style={styles.continueBtn} onPress={handleContinue} activeOpacity={0.85}>
+                <TouchableOpacity
+                    style={[styles.continueBtn, !vehicleNumber && styles.continueBtnDisabled]}
+                    onPress={handleContinue}
+                    disabled={!vehicleNumber}
+                    activeOpacity={0.85}
+                >
                     <Text style={styles.continueBtnText}>Continue</Text>
                 </TouchableOpacity>
             </View>
@@ -249,10 +271,38 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    continueBtnDisabled: {
+        backgroundColor: '#CCC',
+    },
     continueBtnText: {
         color: Theme.colors.white,
         fontSize: 17,
         fontWeight: '700',
         letterSpacing: 0.3,
+    },
+    inputContainer: {
+        marginTop: 24,
+    },
+    inputLabel: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: Theme.colors.gray,
+        marginBottom: 8,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    textInputBox: {
+        height: 56,
+        borderWidth: 1.5,
+        borderColor: Theme.colors.border,
+        borderRadius: 12,
+        backgroundColor: Theme.colors.surface,
+        paddingHorizontal: 16,
+        justifyContent: 'center',
+    },
+    textInput: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: Theme.colors.black,
     },
 });

@@ -8,9 +8,11 @@ import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import RideRequestModal from '../components/RideRequestModal';
+import { LOCATION_UPDATE_INTERVAL } from '../constants/config';
 import { Theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { acceptRide as acceptRideApi } from '../services/api';
+import { wsManager } from '../services/websocket';
 
 interface Ride {
     id: string;
@@ -55,12 +57,13 @@ export default function HomeScreen() {
     const router = useRouter();
     const [showRideRequest, setShowRideRequest] = useState<boolean>(false);
     const [currentRide, setCurrentRide] = useState<Ride | null>(null);
-    const [lastFetchedRides, setLastFetchedRides] = useState<string[]>([]);
+    const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const snapPoints = useMemo(() =>
         isOnline ? ['13%', '45%', '90%'] : ['13%'],
         [isOnline]);
 
+    // ─── Location Permissions & Tracking ───
     useEffect(() => {
         (async () => {
             let { status } = await Location.requestForegroundPermissionsAsync();
@@ -96,29 +99,100 @@ export default function HomeScreen() {
         })();
     }, []);
 
+    // ─── WebSocket: Listen for ride requests ───
     useEffect(() => {
-        if (user) {
-            fetchDriverStatus();
-        }
-    }, [user]);
+        if (!isOnline) return;
 
-    const fetchDriverStatus = async () => {
-        if (!user) return;
+        const unsubscribe = wsManager.onMessage(async (data) => {
+            if (data.event === 'NEW_RIDE_REQUEST' && !showRideRequest) {
+                console.log('New ride request received:', data);
 
-        try {
-            const { data, error } = await supabase
-                .from('drivers')
-                .select('is_available')
-                .eq('user_id', user.id)
-                .single();
+                // Enrich with address data if we have coords
+                let pickupAddress = `${data.pickup?.lat}, ${data.pickup?.lng}`;
+                let destAddress = `${data.drop?.lat}, ${data.drop?.lng}`;
 
-            if (data) {
-                setIsOnline(data.is_available);
+                if (GOOGLE_MAPS_APIKEY && location) {
+                    try {
+                        const driverCoords = `${location.coords.latitude},${location.coords.longitude}`;
+                        const pickupCoords = `${data.pickup?.lat},${data.pickup?.lng}`;
+                        const dropCoords = `${data.drop?.lat},${data.drop?.lng}`;
+
+                        // Get distance + geocode in parallel
+                        const [distRes, pickupGeo, destGeo] = await Promise.all([
+                            fetch(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${driverCoords}|${pickupCoords}&destinations=${pickupCoords}|${dropCoords}&key=${GOOGLE_MAPS_APIKEY}`).then(r => r.json()),
+                            fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${pickupCoords}&key=${GOOGLE_MAPS_APIKEY}`).then(r => r.json()),
+                            fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${dropCoords}&key=${GOOGLE_MAPS_APIKEY}`).then(r => r.json()),
+                        ]);
+
+                        if (pickupGeo.status === 'OK') pickupAddress = pickupGeo.results[0].formatted_address;
+                        if (destGeo.status === 'OK') destAddress = destGeo.results[0].formatted_address;
+
+                        const driverToPickup = distRes?.rows?.[0]?.elements?.[0];
+                        const tripDetails = distRes?.rows?.[1]?.elements?.[1];
+
+                        const enrichedRide: Ride = {
+                            id: String(data.rideId),
+                            status: 'REQUESTED',
+                            pickup_address: pickupAddress,
+                            destination_address: destAddress,
+                            pickup_lat: data.pickup?.lat,
+                            pickup_lng: data.pickup?.lng,
+                            destination_lat: data.drop?.lat,
+                            destination_lng: data.drop?.lng,
+                            price: data.price || 0,
+                            pickup_distance_text: driverToPickup?.duration?.text || 'Nearby',
+                            trip_duration_text: tripDetails?.duration?.text || '',
+                            trip_distance_text: tripDetails?.distance?.text || '',
+                        };
+
+                        setCurrentRide(enrichedRide);
+                        setShowRideRequest(true);
+                    } catch (err) {
+                        console.error('Error enriching ride data:', err);
+                        // Show with raw coords
+                        setCurrentRide({
+                            id: String(data.rideId),
+                            status: 'REQUESTED',
+                            pickup_address: pickupAddress,
+                            destination_address: destAddress,
+                            pickup_lat: data.pickup?.lat,
+                            pickup_lng: data.pickup?.lng,
+                            destination_lat: data.drop?.lat,
+                            destination_lng: data.drop?.lng,
+                            price: data.price || 0,
+                        });
+                        setShowRideRequest(true);
+                    }
+                } else {
+                    // No Google Maps API key — show raw data
+                    setCurrentRide({
+                        id: String(data.rideId),
+                        status: 'REQUESTED',
+                        pickup_address: pickupAddress,
+                        destination_address: destAddress,
+                        pickup_lat: data.pickup?.lat,
+                        pickup_lng: data.pickup?.lng,
+                        destination_lat: data.drop?.lat,
+                        destination_lng: data.drop?.lng,
+                        price: data.price || 0,
+                    });
+                    setShowRideRequest(true);
+                }
             }
-        } catch (err) {
-            console.error('Error fetching driver status:', err);
-        }
-    };
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [isOnline, showRideRequest, location]);
+
+    // ─── Bottom sheet initial snap ───
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            bottomSheetRef.current?.snapToIndex(0);
+        }, 100);
+        return () => clearTimeout(timer);
+    }, []);
 
     const centerOnUser = useCallback(() => {
         if (location && mapRef.current) {
@@ -131,6 +205,7 @@ export default function HomeScreen() {
         }
     }, [location]);
 
+    // ─── Go Online / Offline ───
     const toggleOnline = async () => {
         if (isUpdatingStatus) return;
 
@@ -138,194 +213,57 @@ export default function HomeScreen() {
         setIsUpdatingStatus(true);
 
         if (nextState) {
+            // Going ONLINE
             if (!user || !location) {
                 console.log('Cannot go online: User or location missing');
+                setIsUpdatingStatus(false);
                 return;
             }
 
             try {
-                const { error } = await supabase
-                    .from('drivers')
-                    .upsert({
-                        user_id: user.id,
-                        lat: location.coords.latitude,
-                        lng: location.coords.longitude,
-                        is_available: true,
-                        updated_at: new Date().toISOString(),
-                    }, { onConflict: 'user_id' });
+                // Connect WebSocket and register as driver
+                wsManager.connect(user.id);
 
-                if (error) {
-                    console.error('Error updating status:', error.message);
-                    return;
-                }
+                // Start sending location updates at interval
+                locationIntervalRef.current = setInterval(() => {
+                    if (location) {
+                        wsManager.sendLocationUpdate(
+                            user.id,
+                            location.coords.latitude,
+                            location.coords.longitude
+                        );
+                    }
+                }, LOCATION_UPDATE_INTERVAL);
+
+                setIsOnline(true);
             } catch (err) {
-                console.error('Failed to update driver status:', err);
-                return;
+                console.error('Failed to go online:', err);
             }
         } else {
-            // Update to offline status
-            if (user) {
-                await supabase
-                    .from('drivers')
-                    .update({
-                        is_available: false,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq('user_id', user.id);
+            // Going OFFLINE
+            wsManager.disconnect();
+
+            if (locationIntervalRef.current) {
+                clearInterval(locationIntervalRef.current);
+                locationIntervalRef.current = null;
             }
-            // Snap the sheet back down when going offline
+
             bottomSheetRef.current?.snapToIndex(0);
+            setIsOnline(false);
         }
 
-        setIsOnline(nextState);
         setIsUpdatingStatus(false);
     };
 
+    // Clean up on unmount
     useEffect(() => {
-        const timer = setTimeout(() => {
-            bottomSheetRef.current?.snapToIndex(0);
-        }, 100);
-        return () => clearTimeout(timer);
+        return () => {
+            wsManager.disconnect();
+            if (locationIntervalRef.current) {
+                clearInterval(locationIntervalRef.current);
+            }
+        };
     }, []);
-
-    const fetchNearbyRides = async () => {
-        if (!isOnline || !location || showRideRequest) return;
-
-        try {
-            console.log('Fetching available rides...');
-            const { data: rides, error } = await supabase
-                .from('rides')
-                .select('*')
-                .eq('status', 'searching');
-
-            if (error) throw error;
-            if (!rides || rides.length === 0) {
-                console.log('No rides searching in Supabase');
-                return;
-            }
-
-            const driverCoords = `${location.coords.latitude},${location.coords.longitude}`;
-
-            for (const ride of rides) {
-                if (lastFetchedRides.includes(ride.id)) continue;
-
-                const ridePickupCoords = `${ride.pickup_lat},${ride.pickup_lng}`;
-                const rideDestCoords = `${ride.destination_lat},${ride.destination_lng}`;
-
-                const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${driverCoords}|${ridePickupCoords}&destinations=${ridePickupCoords}|${rideDestCoords}&key=${GOOGLE_MAPS_APIKEY}`;
-
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.status === 'OK') {
-                    const driverToPickup = data.rows[0].elements[0];
-                    const tripDetails = data.rows[1].elements[1];
-
-                    if (driverToPickup.status === 'OK') {
-                        const distanceInKm = driverToPickup.distance.value / 1000;
-                        const formattedPrice = new Intl.NumberFormat('en-NG').format(ride.price);
-                        console.log(`Checking ride ${ride.id}: Price = ₦${formattedPrice}, Distance = ${distanceInKm.toFixed(2)}km`);
-
-                        if (distanceInKm >= 0 && distanceInKm <= 5) {
-                            console.log('Nearby ride found!', ride);
-
-                            // Fetch addresses if they look like coordinates or are missing
-                            let pickupAddress = ride.pickup_address;
-                            let destAddress = ride.destination_address;
-
-                            try {
-                                const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=`;
-                                const [pickupGeo, destGeo] = await Promise.all([
-                                    fetch(`${geoUrl}${ride.pickup_lat},${ride.pickup_lng}&key=${GOOGLE_MAPS_APIKEY}`).then(res => res.json()),
-                                    fetch(`${geoUrl}${ride.destination_lat},${ride.destination_lng}&key=${GOOGLE_MAPS_APIKEY}`).then(res => res.json())
-                                ]);
-
-                                if (pickupGeo.status === 'OK') pickupAddress = pickupGeo.results[0].formatted_address;
-                                if (destGeo.status === 'OK') destAddress = destGeo.results[0].formatted_address;
-                            } catch (geoErr) {
-                                console.error('Error reverse geocoding addresses:', geoErr);
-                            }
-
-                            const enrichedRide: Ride = {
-                                ...ride,
-                                pickup_address: pickupAddress,
-                                destination_address: destAddress,
-                                pickup_distance_text: driverToPickup.duration.text,
-                                trip_duration_text: tripDetails.duration.text,
-                                trip_distance_text: tripDetails.distance.text,
-                            };
-
-                            setCurrentRide(enrichedRide);
-                            setShowRideRequest(true);
-                            setLastFetchedRides(prev => [...prev, ride.id]);
-                            break;
-                        }
-                    }
-                }
-            }
-        } catch (err) {
-            console.error('Error fetching/filtering rides:', err);
-        }
-    };
-
-    // Supabase Realtime Subscription
-    useEffect(() => {
-        if (!isOnline) return;
-
-        // Initial fetch when going online
-        fetchNearbyRides();
-
-        const subscription = supabase
-            .channel('rides_channel')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'rides',
-                },
-                (payload) => {
-                    const newRide = payload.new as Ride;
-                    console.log('New ride detected via Realtime:', newRide.id);
-                    if (newRide.status === 'searching') {
-                        fetchNearbyRides();
-                    }
-                }
-            )
-            .on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'rides',
-                },
-                (payload) => {
-                    const updatedRide = payload.new as Ride;
-                    console.log('Ride update detected via Realtime:', updatedRide.id, updatedRide.status);
-                    if (updatedRide.status === 'searching') {
-                        fetchNearbyRides();
-                    }
-                }
-            )
-            .subscribe();
-
-        return () => {
-            subscription.unsubscribe();
-        };
-    }, [isOnline, location, showRideRequest]);
-
-    // Supplemental polling every 10 seconds
-    useEffect(() => {
-        let interval: ReturnType<typeof setInterval>;
-        if (isOnline) {
-            interval = setInterval(() => {
-                fetchNearbyRides();
-            }, 10000);
-        }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [isOnline, showRideRequest]); // We don't depend on location here to avoid interval resets
 
     const renderHeader = () => (
         <View style={[styles.headerContainer, { top: insets.top + 10 }]}>
@@ -489,16 +427,7 @@ export default function HomeScreen() {
                 onAccept={async (rideId) => {
                     console.log('Ride accepted:', rideId);
                     try {
-                        const { error } = await supabase
-                            .from('rides')
-                            .update({
-                                status: 'accepted',
-                                driver_id: user?.id,
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('id', rideId);
-
-                        if (error) throw error;
+                        await acceptRideApi(Number(rideId));
                         setShowRideRequest(false);
                         // Navigate to active trip or update UI
                     } catch (err) {
