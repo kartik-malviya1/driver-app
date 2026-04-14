@@ -126,21 +126,29 @@ export async function signup(data: SignupData): Promise<SignupResponse> {
 export async function acceptRide(rideId: number) {
   return apiFetch(`/rides/${rideId}/accept`, {
     method: "PATCH",
+    body: JSON.stringify({ "HELLP": "YES" }),
   });
 }
 
 export async function updateRideStatus(
   rideId: number,
   status: "STARTED" | "COMPLETED" | "CANCELLED",
+  otp?: number
 ) {
   return apiFetch(`/rides/${rideId}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, otp }),
   });
 }
 
 export async function getRideStatus(rideId: number) {
   return apiFetch(`/rides/${rideId}/status`, {
+    method: "GET",
+  });
+}
+
+export async function getActiveRide() {
+  return apiFetch("/rides/active", {
     method: "GET",
   });
 }

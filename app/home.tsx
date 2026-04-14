@@ -11,7 +11,7 @@ import RideRequestModal from '../components/RideRequestModal';
 import { LOCATION_UPDATE_INTERVAL } from '../constants/config';
 import { Theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { acceptRide as acceptRideApi } from '../services/api';
+import { acceptRide as acceptRideApi, getActiveRide } from '../services/api';
 import { wsManager } from '../services/websocket';
 
 interface Ride {
@@ -74,6 +74,27 @@ export default function HomeScreen() {
 
             let location = await Location.getCurrentPositionAsync({});
             setLocation(location);
+
+            // ─── CHECK FOR ACTIVE RIDE ───
+            // If driver has an active ride, redirect them to RideActiveScreen
+            try {
+                const activeRide = await getActiveRide();
+                if (activeRide && activeRide.id) {
+                    router.replace({
+                        pathname: '/ride-active',
+                        params: {
+                            rideId: String(activeRide.id),
+                            pickupLat: String(activeRide.pickupLocationLat),
+                            pickupLng: String(activeRide.pickupLocationLng),
+                            pickupAddress: activeRide.pickup_address || "",
+                            dropLat: String(activeRide.dropLocationLat),
+                            dropLng: String(activeRide.dropLocationLng)
+                        }
+                    });
+                }
+            } catch (err) {
+                console.log('No active ride for driver or error:', err);
+            }
 
             // Watch position for movement
             const locationSubscription = await Location.watchPositionAsync(
@@ -427,9 +448,23 @@ export default function HomeScreen() {
                 onAccept={async (rideId) => {
                     console.log('Ride accepted:', rideId);
                     try {
-                        await acceptRideApi(Number(rideId));
+                        const response = await acceptRideApi(Number(rideId));
                         setShowRideRequest(false);
-                        // Navigate to active trip or update UI
+                        
+                        if (currentRide) {
+                            router.push({
+                                pathname: '/ride-active',
+                                params: { 
+                                    rideId: String(rideId),
+                                    pickupLat: String(currentRide.pickup_lat),
+                                    pickupLng: String(currentRide.pickup_lng),
+                                    pickupAddress: currentRide.pickup_address,
+                                    dropLat: String(currentRide.destination_lat),
+                                    dropLng: String(currentRide.destination_lng),
+                                    otp: String(response.otp)
+                                }
+                            });
+                        }
                     } catch (err) {
                         console.error('Failed to accept ride:', err);
                     }
