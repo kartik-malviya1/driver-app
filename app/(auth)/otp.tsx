@@ -56,7 +56,7 @@ export default function OtpScreen() {
                 });
             }
         } catch (err: any) {
-            console.error('OTP verification error:', err);
+            console.log('OTP verification error:', err);
             setError(err.message || 'Invalid OTP. Please try again.');
         } finally {
             setLoading(false);

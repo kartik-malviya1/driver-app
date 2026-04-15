@@ -67,11 +67,11 @@ const MAP_STYLE = [
 ];
 
 export default function HomeScreen() {
-    const { user } = useAuth();
+    const { user, isOnline, setIsOnline } = useAuth();
     const insets = useSafeAreaInsets();
     const [location, setLocation] = useState<Location.LocationObject | null>(null);
     const [heading, setHeading] = useState<number>(0);
-    const [isOnline, setIsOnline] = useState<boolean>(false);
+    // const [isOnline, setIsOnline] = useState<boolean>(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
     const bottomSheetRef = useRef<BottomSheet>(null);
     const mapRef = useRef<MapView>(null);
@@ -156,6 +156,23 @@ export default function HomeScreen() {
                 (newLoc) => setLocation(newLoc)
             );
             const headingSub = await Location.watchHeadingAsync((h) => setHeading(h.trueHeading));
+
+            // Auto-reconnect WS if we are persistently online
+            if (isOnline && user) {
+                console.log('[Home] Persistently online, reconnecting WS...');
+                wsManager.connect(user.id);
+                if (loc) {
+                    await updateLocationRest(user.id, loc.coords.latitude, loc.coords.longitude);
+                }
+                
+                if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
+                locationIntervalRef.current = setInterval(() => {
+                    const curLoc = locationRef.current;
+                    if (curLoc && user) {
+                        wsManager.sendLocationUpdate(user.id, curLoc.coords.latitude, curLoc.coords.longitude);
+                    }
+                }, LOCATION_UPDATE_INTERVAL);
+            }
 
             return () => {
                 locationSub.remove();
@@ -296,13 +313,14 @@ console.log('[Home] Ride request details:', { pickupLat, pickupLng, dropLat, dro
                 // Also send initial REST location update to ensure backend marks us as active
                 await updateLocationRest(user.id, location.coords.latitude, location.coords.longitude);
 
+                if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
                 locationIntervalRef.current = setInterval(() => {
                     const curLoc = locationRef.current;
-                    if (curLoc) {
+                    if (curLoc && user) {
                         wsManager.sendLocationUpdate(user.id, curLoc.coords.latitude, curLoc.coords.longitude);
                     }
                 }, LOCATION_UPDATE_INTERVAL);
-                setIsOnline(true);
+                await setIsOnline(true);
             } catch (err) {
                 console.error('Failed to go online:', err);
             }
@@ -310,7 +328,7 @@ console.log('[Home] Ride request details:', { pickupLat, pickupLng, dropLat, dro
             wsManager.disconnect();
             if (locationIntervalRef.current) { clearInterval(locationIntervalRef.current); locationIntervalRef.current = null; }
             bottomSheetRef.current?.snapToIndex(0);
-            setIsOnline(false);
+            await setIsOnline(false);
         }
         setIsUpdatingStatus(false);
     };

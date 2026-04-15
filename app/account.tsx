@@ -5,13 +5,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Platform,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
-    Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../constants/theme';
@@ -140,7 +140,8 @@ export default function AccountScreen() {
                     <Ionicons name="arrow-back" size={24} color={Theme.colors.black} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Profile</Text>
-                <View style={{ width: 24 }} /> {/* Spacer for balance */}
+                {/* Spacer for balance */}
+                <View style={{ width: 24 }} /> 
             </View>
 
             <ScrollView

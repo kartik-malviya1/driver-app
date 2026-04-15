@@ -216,7 +216,8 @@ const styles = StyleSheet.create({
     disclaimer: {
         fontSize: 13,
         color: Theme.colors.lightGray,
-        lineHeight: 19,
+        lineHeight: 18,
+        paddingHorizontal: 5,
     },
     link: {
         color: Theme.colors.green,
@@ -225,6 +226,7 @@ const styles = StyleSheet.create({
     footer: {
         paddingHorizontal: 24,
         paddingBottom: 16,
+        color: Theme.colors.black,
     },
     continueBtn: {
         height: 60,
