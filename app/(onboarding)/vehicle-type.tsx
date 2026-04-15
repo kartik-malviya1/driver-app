@@ -23,13 +23,7 @@ interface VehicleOption {
 
 const VEHICLE_OPTIONS: VehicleOption[] = [
 
-    {
-        id: 'bike',
-        label: 'Bike',
-        description: 'You wish to drive a motorcycle or scooter',
-        emoji: '🏍️',
-        tags: ['Trips'],
-    },
+
     {
         id: 'auto_rickshaw',
         label: 'Auto rickshaw',

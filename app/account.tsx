@@ -1,106 +1,223 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+    Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
+import { getDriverAccount, type DriverAccountResponse } from '../services/api';
 
 export default function AccountScreen() {
     const { user, signOut } = useAuth();
     const { resetOnboarding } = useOnboarding();
     const router = useRouter();
 
+    const [accountData, setAccountData] = useState<DriverAccountResponse | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+
+    const loadAccount = useCallback(async (isRefresh = false) => {
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
+
+        try {
+            const data = await getDriverAccount();
+            setAccountData(data);
+        } catch (err: any) {
+            console.error('Failed to load account:', err);
+            Alert.alert('Error', err?.message || 'Failed to load account details.');
+        } finally {
+            if (isRefresh) setRefreshing(false);
+            else setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadAccount(false);
+    }, [loadAccount]);
+
     const handleSignOut = async () => {
-        await resetOnboarding();
-        await signOut();
-        router.replace('/(auth)/phone');
+        Alert.alert(
+            "Sign Out",
+            "Are you sure you want to sign out?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Sign Out",
+                    style: "destructive",
+                    onPress: async () => {
+                        await resetOnboarding();
+                        await signOut();
+                        router.replace('/(auth)/phone');
+                    }
+                }
+            ]
+        );
     };
 
-    const renderMenuItem = (icon: string, title: string, subtitle?: string, color: string = Theme.colors.black, onPress?: () => void) => (
-        <TouchableOpacity style={styles.menuItem} onPress={onPress}>
+    const renderDetailRow = (icon: string, label: string, value: string, isLast = false) => (
+        <View style={[styles.detailRow, !isLast && styles.rowDivider]}>
+            <View style={styles.detailRowLeft}>
+                <MaterialCommunityIcons name={icon as any} size={22} color={Theme.colors.gray} />
+                <Text style={styles.detailLabel}>{label}</Text>
+            </View>
+            <Text style={styles.detailValue}>{value}</Text>
+        </View>
+    );
+
+    const renderMenuItem = (
+        icon: string,
+        title: string,
+        subtitle?: string,
+        iconColor: string = Theme.colors.black,
+        onPress?: () => void,
+        isLast = false
+    ) => (
+        <TouchableOpacity
+            style={[styles.menuItem, !isLast && styles.rowDivider]}
+            onPress={onPress}
+            activeOpacity={0.75}
+        >
             <View style={styles.menuItemLeft}>
-                <View style={[styles.iconContainer, {
-                    backgroundColor: color === Theme.colors.danger ? Theme.colors.dangerPale :
-                        color === Theme.colors.orange ? Theme.colors.orangePale : Theme.colors.greenPale
-                }]}>
-                    <MaterialCommunityIcons name={icon as any} size={22} color={color} />
+                <View style={[styles.iconContainer, { backgroundColor: `${iconColor}15` }]}>
+                    <MaterialCommunityIcons name={icon as any} size={24} color={iconColor} />
                 </View>
                 <View>
-                    <Text style={[styles.menuItemTitle, { color }]}>{title}</Text>
+                    <Text style={[
+                        styles.menuItemTitle,
+                        iconColor === Theme.colors.danger && { color: Theme.colors.danger }
+                    ]}>
+                        {title}
+                    </Text>
                     {subtitle && <Text style={styles.menuItemSubtitle}>{subtitle}</Text>}
                 </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Theme.colors.lightGray} />
+            {iconColor !== Theme.colors.danger && (
+                <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            )}
         </TouchableOpacity>
     );
 
+    if (loading && !accountData) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <StatusBar style="dark" />
+                <Text style={styles.centeredState}>
+                    <ActivityIndicator size="large" color={Theme.colors.green} />
+                </Text>
+            </SafeAreaView>
+        );
+    }
+
+    const profile = accountData?.profile;
+    const stats = accountData?.stats;
+    const ratingText = profile?.rating != null ? profile.rating.toFixed(2) : '--';
+    const completedTrips = stats?.completedTrips ?? 0;
+    const yearsOnPlatform = stats?.yearsOnPlatform ?? 0;
+    const completionRateText = stats?.completionRate != null ? `${stats.completionRate}%` : '--';
+    const lifetimeEarningsText = `₹${Math.round(stats?.lifetimeEarnings ?? 0).toLocaleString()}`;
+    const initial = profile?.name?.charAt(0).toUpperCase() || user?.name?.charAt(0).toUpperCase() || 'D';
+
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             <StatusBar style="dark" />
+
+            {/* Clean Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.navigate("/checklist")} style={styles.backButton}>
-                    <Ionicons name="close" size={26} color={Theme.colors.black} />
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color={Theme.colors.black} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>My Account</Text>
+                <Text style={styles.headerTitle}>Profile</Text>
+                <View style={{ width: 24 }} /> {/* Spacer for balance */}
             </View>
 
-            <ScrollView bounces={false} contentContainerStyle={styles.scrollContent}>
-                {/* Profile Card */}
-                <View style={styles.profileCard}>
-                    <View style={styles.avatarContainer}>
-                        <Text style={styles.avatarText}>
-                            {user?.name?.charAt(0).toUpperCase() || 'U'}
-                        </Text>
-                    </View>
-                    <View style={styles.userInfo}>
-                        <Text style={styles.userName}>{user?.name || 'Driver Partner'}</Text>
-                        <Text style={styles.userEmail}>Driver ID: {user?.id}</Text>
-                        <View style={styles.ratingBadge}>
-                            <Ionicons name="star" size={12} color={Theme.colors.orange} />
-                            <Text style={styles.ratingText}>4.95</Text>
+            <ScrollView
+                bounces={true}
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={() => loadAccount(true)}
+                        tintColor={Theme.colors.green}
+                    />
+                }
+            >
+                {/* Clean Profile Header */}
+                <View style={styles.profileHeader}>
+                    <View style={styles.avatarWrapper}>
+                        <View style={styles.avatarContainer}>
+                            <Text style={styles.avatarText}>{initial}</Text>
+                        </View>
+                        <View style={[
+                            styles.statusBadge,
+                            { backgroundColor: profile?.status === 'ONLINE' ? Theme.colors.green : '#8E8E93' }
+                        ]}>
+                            <View style={styles.statusDot} />
                         </View>
                     </View>
+
+                    <Text style={styles.userName}>{profile?.name || 'Driver Partner'}</Text>
+                    <Text style={styles.userPhone}>{profile?.phoneNumber || 'No phone number'}</Text>
+
+                    <View style={styles.ratingPill}>
+                        <Ionicons name="star" size={15} color="#FFB800" />
+                        <Text style={styles.ratingText}>{ratingText}</Text>
+                    </View>
                 </View>
 
-                {/* Stats */}
-                <View style={styles.statsContainer}>
+                {/* Clean Stats Card */}
+                <View style={styles.statsCard}>
                     <View style={styles.statBox}>
-                        <Text style={styles.statValue}>1,254</Text>
+                        <Text style={styles.statValue}>{completedTrips.toLocaleString()}</Text>
                         <Text style={styles.statLabel}>Trips</Text>
                     </View>
-                    <View style={[styles.statBox, styles.statSeparator]}>
-                        <Text style={styles.statValue}>2.5</Text>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statBox}>
+                        <Text style={styles.statValue}>{yearsOnPlatform.toFixed(1)}</Text>
                         <Text style={styles.statLabel}>Years</Text>
                     </View>
+                    <View style={styles.statDivider} />
                     <View style={styles.statBox}>
-                        <Text style={styles.statValue}>98%</Text>
-                        <Text style={styles.statLabel}>Rating</Text>
+                        <Text style={styles.statValue}>{completionRateText}</Text>
+                        <Text style={styles.statLabel}>Completion</Text>
                     </View>
                 </View>
 
-                {/* Menu */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Preferences</Text>
-                    {renderMenuItem('wallet-outline', 'Earnings', 'Weekly overview', Theme.colors.green)}
-                    {renderMenuItem('shield-check-outline', 'Safety', 'Security & Insurance', Theme.colors.green)}
-                    {renderMenuItem('cog-outline', 'Settings', 'Preferences & Language', Theme.colors.orange)}
+                {/* Professional Details */}
+                <Text style={styles.sectionHeading}>VEHICLE & LICENSE</Text>
+                <View style={styles.card}>
+                    {renderDetailRow('car-outline', 'Vehicle Number', profile?.vehicleNumber || 'Not provided')}
+                    {renderDetailRow('card-account-details-outline', 'License Number', profile?.licenseNumber || 'Not provided')}
+                    {renderDetailRow('shield-check-outline', 'Account Status', profile?.status || 'OFFLINE', true)}
                 </View>
 
-                <View style={styles.divider} />
-
-                <View style={styles.section}>
-                    {renderMenuItem('logout', 'Sign Out', 'Logout from your account', Theme.colors.danger, handleSignOut)}
+                {/* Account Dashboard */}
+                <Text style={styles.sectionHeading}>ACCOUNT DASHBOARD</Text>
+                <View style={styles.card}>
+                    {renderMenuItem('wallet-outline', 'Earnings', `${lifetimeEarningsText} lifetime`, Theme.colors.green)}
+                    {renderMenuItem('shield-check-outline', 'Safety', 'Security & Insurance', '#007AFF')}
+                    {renderMenuItem('cog-outline', 'Settings', 'Preferences & Language', '#5856D6', undefined, true)}
                 </View>
 
-                {/* <TouchableOpacity
-                    style={styles.signOutButton}
-                    onPress={handleSignOut}
-                >
-                    <Text style={styles.signOutText}>Log Out</Text>
-                </TouchableOpacity> */}
+                {/* Sign Out Section */}
+                <View style={[styles.card, styles.logoutCard]}>
+                    {renderMenuItem('logout', 'Sign Out', undefined, Theme.colors.danger, handleSignOut, true)}
+                </View>
+
+                <Text style={styles.versionText}>Version 1.0.0</Text>
             </ScrollView>
         </SafeAreaView>
     );
@@ -109,170 +226,256 @@ export default function AccountScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Theme.colors.white,
+        backgroundColor: '#F6F6F8',
+    },
+    centeredState: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 20,
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
         paddingVertical: 14,
-        borderBottomWidth: 1,
-        borderBottomColor: Theme.colors.border,
+        backgroundColor: Theme.colors.white,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#E5E5EA',
     },
     backButton: {
         padding: 4,
     },
     headerTitle: {
-        fontSize: 20,
+        fontSize: 19,
         fontWeight: '700',
-        marginLeft: 18,
         color: Theme.colors.black,
     },
     scrollContent: {
-        paddingBottom: 48,
+        paddingBottom: 60,
     },
-    profileCard: {
-        flexDirection: 'row',
-        padding: 24,
+
+    /* Profile Header */
+    profileHeader: {
         alignItems: 'center',
+        paddingVertical: 32,
         backgroundColor: Theme.colors.white,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#E5E5EA',
+    },
+    avatarWrapper: {
+        position: 'relative',
+        marginBottom: 16,
     },
     avatarContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
+        width: 92,
+        height: 92,
+        borderRadius: 46,
         backgroundColor: Theme.colors.green,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 3,
-        borderColor: Theme.colors.greenPale,
+        ...Platform.select({
+            ios: {
+                shadowColor: Theme.colors.green,
+                shadowOffset: { width: 0, height: 5 },
+                shadowOpacity: 0.25,
+                shadowRadius: 10,
+            },
+            android: {
+                elevation: 8,
+            },
+        }),
     },
     avatarText: {
         color: Theme.colors.white,
-        fontSize: 32,
-        fontWeight: 'bold',
+        fontSize: 38,
+        fontWeight: '700',
     },
-    userInfo: {
-        marginLeft: 20,
-        flex: 1,
+    statusBadge: {
+        position: 'absolute',
+        bottom: 3,
+        right: 3,
+        width: 26,
+        height: 26,
+        borderRadius: 13,
+        borderWidth: 3,
+        borderColor: Theme.colors.white,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    statusDot: {
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: '#FFF',
     },
     userName: {
-        fontSize: 22,
+        fontSize: 24,
         fontWeight: '700',
-        marginBottom: 4,
         color: Theme.colors.black,
+        marginBottom: 6,
     },
-    userEmail: {
-        fontSize: 14,
+    userPhone: {
+        fontSize: 15.5,
         color: Theme.colors.gray,
-        marginBottom: 10,
+        marginBottom: 14,
     },
-    ratingBadge: {
+    ratingPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: Theme.colors.orangePale,
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
-        alignSelf: 'flex-start',
+        backgroundColor: '#FFF9E6',
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+        borderRadius: 20,
         borderWidth: 1,
-        borderColor: Theme.colors.orange,
+        borderColor: '#FFEBB8',
     },
     ratingText: {
-        fontSize: 12,
+        fontSize: 14.5,
         fontWeight: '700',
-        marginLeft: 4,
-        color: Theme.colors.orange,
+        color: '#D49A00',
+        marginLeft: 6,
     },
-    statsContainer: {
+
+    /* Stats Card */
+    statsCard: {
         flexDirection: 'row',
-        marginHorizontal: 20,
-        backgroundColor: Theme.colors.greenPale,
-        borderRadius: 16,
-        padding: 20,
-        marginBottom: 30,
-        borderWidth: 1,
-        borderColor: Theme.colors.green + '33',
+        backgroundColor: Theme.colors.white,
+        marginHorizontal: 16,
+        marginTop: -20,
+        borderRadius: 18,
+        paddingVertical: 20,
+        ...Platform.select({
+            ios: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 3 },
+                shadowOpacity: 0.08,
+                shadowRadius: 12,
+            },
+            android: {
+                elevation: 4,
+            },
+        }),
     },
     statBox: {
         flex: 1,
         alignItems: 'center',
     },
-    statSeparator: {
-        borderLeftWidth: 1,
-        borderRightWidth: 1,
-        borderColor: Theme.colors.green + '44',
+    statDivider: {
+        width: 1,
+        backgroundColor: '#E5E5EA',
+        marginVertical: 4,
     },
     statValue: {
-        fontSize: 20,
-        fontWeight: '800',
+        fontSize: 21,
+        fontWeight: '700',
+        color: Theme.colors.black,
         marginBottom: 4,
-        color: Theme.colors.green,
     },
     statLabel: {
-        fontSize: 11,
+        fontSize: 12.5,
+        fontWeight: '600',
         color: Theme.colors.gray,
         textTransform: 'uppercase',
-        fontWeight: '600',
         letterSpacing: 0.5,
     },
-    section: {
-        paddingHorizontal: 20,
-    },
-    sectionTitle: {
+
+    /* Section & Cards */
+    sectionHeading: {
         fontSize: 13,
-        fontWeight: '700',
-        marginBottom: 8,
-        color: Theme.colors.lightGray,
+        fontWeight: '600',
+        color: '#8E8E93',
+        marginLeft: 20,
+        marginTop: 32,
+        marginBottom: 10,
         textTransform: 'uppercase',
-        letterSpacing: 0.8,
+        letterSpacing: 0.6,
     },
-    divider: {
-        height: 8,
-        backgroundColor: Theme.colors.surface,
-        marginVertical: 8,
+    card: {
+        backgroundColor: Theme.colors.white,
+        borderRadius: 16,
+        marginHorizontal: 16,
+        overflow: 'hidden',
+        ...Platform.select({
+            ios: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.06,
+                shadowRadius: 8,
+            },
+            android: {
+                elevation: 3,
+            },
+        }),
     },
+    logoutCard: {
+        marginTop: 28,
+    },
+    rowDivider: {
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#E5E5EA',
+    },
+
+    /* Detail Row */
+    detailRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 16.5,
+        paddingHorizontal: 18,
+    },
+    detailRowLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    detailLabel: {
+        fontSize: 15.5,
+        color: Theme.colors.gray,
+        fontWeight: '500',
+    },
+    detailValue: {
+        fontSize: 15.5,
+        fontWeight: '600',
+        color: Theme.colors.black,
+    },
+
+    /* Menu Item */
     menuItem: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingVertical: 14,
+        paddingVertical: 14.5,
+        paddingHorizontal: 18,
     },
     menuItemLeft: {
         flexDirection: 'row',
         alignItems: 'center',
     },
     iconContainer: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
+        width: 42,
+        height: 42,
+        borderRadius: 11,
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 16,
+        marginRight: 15,
     },
     menuItemTitle: {
-        fontSize: 16,
+        fontSize: 16.5,
         fontWeight: '600',
+        color: Theme.colors.black,
     },
     menuItemSubtitle: {
-        fontSize: 13,
-        color: Theme.colors.lightGray,
+        fontSize: 13.5,
+        color: Theme.colors.gray,
         marginTop: 2,
     },
-    signOutButton: {
-        marginTop: 24,
-        marginHorizontal: 20,
-        height: 56,
-        backgroundColor: Theme.colors.surface,
-        borderRadius: 14,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: Theme.colors.danger + '55',
-    },
-    signOutText: {
-        color: Theme.colors.danger,
-        fontSize: 16,
-        fontWeight: '700',
+
+    versionText: {
+        textAlign: 'center',
+        color: '#AEAEB2',
+        fontSize: 13,
+        marginTop: 40,
+        fontWeight: '500',
     }
 });

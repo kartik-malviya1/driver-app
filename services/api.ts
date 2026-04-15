@@ -153,6 +153,96 @@ export async function getActiveRide() {
   });
 }
 
+export interface NearbyRideRequest {
+  rideId: number;
+  pickup: {
+    lat: number;
+    lng: number;
+  };
+  drop: {
+    lat: number;
+    lng: number;
+  };
+  price: number;
+  paymentMode: "CASH" | "ONLINE";
+  distanceKm?: number | null;
+}
+
+export async function getNearbyRideRequests(
+  radiusKm = 6,
+  limit = 25
+): Promise<{ rides: NearbyRideRequest[] }> {
+  return apiFetch(`/rides/nearby?radiusKm=${radiusKm}&limit=${limit}`, {
+    method: "GET",
+  });
+}
+
+export interface DriverHomeResponse {
+  driver: {
+    id: number;
+    name: string;
+    status: "OFFLINE" | "ONLINE" | "BUSY";
+    rating: number | null;
+  };
+  stats: {
+    todayTrips: number;
+    todayEarnings: number;
+    lifetimeTrips: number;
+    lifetimeEarnings: number;
+    activeRideCount: number;
+  };
+}
+
+export async function getDriverHomeData(): Promise<DriverHomeResponse> {
+  return apiFetch("/driver/home", {
+    method: "GET",
+  });
+}
+
+export interface DriverAccountResponse {
+  profile: {
+    id: number;
+    name: string;
+    phoneNumber: string;
+    vehicleNumber: string | null;
+    licenseNumber: string | null;
+    photoUrl: string | null;
+    status: "OFFLINE" | "ONLINE" | "BUSY";
+    rating: number | null;
+    createdAt: string;
+  };
+  stats: {
+    completedTrips: number;
+    totalAssignedTrips: number;
+    lifetimeEarnings: number;
+    yearsOnPlatform: number;
+    completionRate: number | null;
+  };
+}
+
+export interface UpdateDriverAccountPayload {
+  name?: string;
+  vehicleNumber?: string;
+  licenseNumber?: string;
+  photoUrl?: string;
+}
+
+export async function getDriverAccount(): Promise<DriverAccountResponse> {
+  return apiFetch("/driver/account", {
+    method: "GET",
+  });
+}
+
+export async function updateDriverAccount(payload: UpdateDriverAccountPayload): Promise<{
+  message: string;
+  profile: DriverAccountResponse["profile"];
+}> {
+  return apiFetch("/driver/account", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 // ─── Location API ───
 
 export async function updateLocationRest(

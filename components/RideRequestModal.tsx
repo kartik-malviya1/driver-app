@@ -9,10 +9,12 @@ interface Ride {
     pickup_address: string;
     destination_address: string;
     price: number;
+    payment_mode: string;
     rider_rating?: number;
-    pickup_distance_text?: string;
-    trip_duration_text?: string;
-    trip_distance_text?: string;
+    pickup_lat?: number;
+    pickup_lng?: number;
+    destination_lat?: number;
+    destination_lng?: number;
 }
 
 interface RideRequestModalProps {
@@ -28,7 +30,7 @@ const RideRequestModal = ({ isVisible, ride, onAccept, onClose }: RideRequestMod
     return (
         <View style={styles.overlay}>
             <View style={styles.container}>
-                {/* Header Tags & Close */}
+                {/* Header */}
                 <View style={styles.header}>
                     <View style={styles.tagsContainer}>
                         <View style={[styles.tag, styles.rideTypeTag]}>
@@ -38,13 +40,22 @@ const RideRequestModal = ({ isVisible, ride, onAccept, onClose }: RideRequestMod
                         <View style={[styles.tag, styles.exclusiveTag]}>
                             <Text style={styles.exclusiveText}>Nearby</Text>
                         </View>
+                        <View style={[styles.tag, styles.paymentTag]}>
+                            <Ionicons 
+                                name={ride.payment_mode === 'ONLINE' ? "card" : "cash"} 
+                                size={14} 
+                                color={Theme.colors.orange} 
+                            />
+                            <Text style={styles.paymentText}>{ride.payment_mode}</Text>
+                        </View>
                     </View>
+
                     <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                         <Ionicons name="close" size={24} color={Theme.colors.darkGray} />
                     </TouchableOpacity>
                 </View>
 
-                {/* Price and Rating */}
+                {/* Price & Rating */}
                 <View style={styles.priceRatingContainer}>
                     <Text style={styles.price}>
                         ₹{new Intl.NumberFormat('en-IN').format(ride.price)}
@@ -55,27 +66,37 @@ const RideRequestModal = ({ isVisible, ride, onAccept, onClose }: RideRequestMod
                     </View>
                 </View>
 
-                {/* Location Details */}
+                {/* Addresses */}
                 <View style={styles.detailsContainer}>
                     <View style={styles.timelineContainer}>
                         <View style={styles.dot} />
                         <View style={styles.line} />
                         <View style={styles.square} />
                     </View>
+
                     <View style={styles.locationsContainer}>
                         <View style={styles.locationItem}>
-                            <Text style={styles.locationTitle}>{ride.pickup_distance_text || '1 min'} away</Text>
-                            <Text style={styles.address}>{ride.pickup_address}</Text>
+                            <Text style={styles.locationLabel}>PICKUP</Text>
+                            <Text style={styles.address} numberOfLines={2}>
+                                {ride.pickup_address}
+                            </Text>
                         </View>
-                        <View style={[styles.locationItem, { marginTop: 15 }]}>
-                            <Text style={styles.locationTitle}>{ride.trip_duration_text || '46 mins'} trip ({ride.trip_distance_text})</Text>
-                            <Text style={styles.address}>{ride.destination_address}</Text>
+
+                        <View style={[styles.locationItem, { marginTop: 18 }]}>
+                            <Text style={styles.locationLabel}>DROP</Text>
+                            <Text style={styles.address} numberOfLines={2}>
+                                {ride.destination_address}
+                            </Text>
                         </View>
                     </View>
                 </View>
 
                 {/* Accept Button */}
-                <TouchableOpacity activeOpacity={0.8} onPress={() => onAccept(ride.id)} style={styles.acceptButton}>
+                <TouchableOpacity 
+                    activeOpacity={0.8} 
+                    onPress={() => onAccept(ride.id)} 
+                    style={styles.acceptButton}
+                >
                     <View style={styles.buttonTimerBackground} />
                     <Text style={styles.acceptButtonText}>Accept Ride</Text>
                 </TouchableOpacity>
@@ -122,18 +143,22 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 8,
     },
-    rideTypeTag: {
-        backgroundColor: Theme.colors.green,
-    },
+    rideTypeTag: { backgroundColor: Theme.colors.green },
     rideTypeText: {
         color: Theme.colors.white,
         fontWeight: '700',
         fontSize: 14,
         marginLeft: 6,
     },
-    exclusiveTag: {
-        backgroundColor: Theme.colors.orangePale,
+    paymentTag: { backgroundColor: Theme.colors.orangePale },
+    paymentText: {
+        color: Theme.colors.orange,
+        fontWeight: '700',
+        fontSize: 12,
+        marginLeft: 4,
+        textTransform: 'uppercase',
     },
+    exclusiveTag: { backgroundColor: Theme.colors.orangePale },
     exclusiveText: {
         color: Theme.colors.orange,
         fontWeight: '600',
@@ -202,17 +227,18 @@ const styles = StyleSheet.create({
     locationItem: {
         justifyContent: 'center',
     },
-    locationTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: Theme.colors.black,
-        lineHeight: 22,
+    locationLabel: {
+        fontSize: 12,
+        fontWeight: '800',
+        color: Theme.colors.gray,
+        letterSpacing: 0.6,
+        marginBottom: 4,
     },
     address: {
-        fontSize: 14,
-        color: Theme.colors.gray,
-        marginTop: 2,
-        lineHeight: 20,
+        fontSize: 15.5,
+        color: Theme.colors.darkGray,
+        fontWeight: '500',
+        lineHeight: 21,
     },
     acceptButton: {
         backgroundColor: Theme.colors.green,

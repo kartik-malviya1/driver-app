@@ -2,16 +2,30 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import RideRequestModal from '../components/RideRequestModal';
 import { LOCATION_UPDATE_INTERVAL } from '../constants/config';
-import { Theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { acceptRide as acceptRideApi, getActiveRide } from '../services/api';
+import {
+    acceptRide as acceptRideApi,
+    getActiveRide,
+    getDriverHomeData,
+    updateLocationRest,
+    type DriverHomeResponse,
+} from '../services/api';
 import { wsManager } from '../services/websocket';
 
 interface Ride {
@@ -24,6 +38,7 @@ interface Ride {
     destination_lat: number;
     destination_lng: number;
     price: number;
+    payment_mode: string;
     rider_rating?: number;
     pickup_distance_text?: string;
     trip_duration_text?: string;
@@ -33,16 +48,22 @@ interface Ride {
 const { width, height } = Dimensions.get('window');
 const GOOGLE_MAPS_APIKEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_APIKEY;
 
+// Brand colors matching SawariAuto rider app
+const BRAND = {
+    yellow: '#FFD400',
+    black: '#1A1A1A',
+    green: '#33B54A',
+    greenDark: '#1D8C32',
+    white: '#FFFFFF',
+    gray: '#AAAAAA',
+    lightGray: '#F8F8F8',
+    border: '#F0F0F0',
+    orange: '#FF6B35',
+};
+
 const MAP_STYLE = [
-    {
-        "featureType": "poi.business",
-        "stylers": [{ "visibility": "off" }]
-    },
-    {
-        "featureType": "poi.park",
-        "elementType": "labels.text",
-        "stylers": [{ "visibility": "off" }]
-    }
+    { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+    { featureType: 'poi.park', elementType: 'labels.text', stylers: [{ visibility: 'off' }] },
 ];
 
 export default function HomeScreen() {
@@ -57,26 +78,60 @@ export default function HomeScreen() {
     const router = useRouter();
     const [showRideRequest, setShowRideRequest] = useState<boolean>(false);
     const [currentRide, setCurrentRide] = useState<Ride | null>(null);
+    const [homeData, setHomeData] = useState<DriverHomeResponse | null>(null);
+    const [cancelledBanner, setCancelledBanner] = useState<string | null>(null);
+    const cancelledBannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const showCancelBanner = useCallback((msg: string) => {
+        if (cancelledBannerTimer.current) clearTimeout(cancelledBannerTimer.current);
+        setCancelledBanner(msg);
+        cancelledBannerTimer.current = setTimeout(() => setCancelledBanner(null), 4000);
+    }, []);
     const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const hasCenteredOnUserRef = useRef(false);
+    const badgeCount = homeData?.stats.lifetimeTrips ?? 0;
+    const badgeText = badgeCount > 99 ? '99+' : String(badgeCount);
+    const headerEarningsText = (homeData?.stats.todayEarnings ?? 0).toFixed(2);
+    const todayTripsText = String(homeData?.stats.todayTrips ?? 0);
+    const todayEarningsText = `₹${(homeData?.stats.todayEarnings ?? 0).toFixed(0)}`;
+    const ratingText = homeData?.driver.rating != null ? `${homeData.driver.rating.toFixed(1)} ★` : '--';
+
+    // Refs for WebSocket listener to avoid frequent resubs
+    const locationRef = useRef(location);
+    const showRideRequestRef = useRef(showRideRequest);
+    const currentRideRef = useRef(currentRide);
+
+    useEffect(() => { locationRef.current = location; }, [location]);
+    useEffect(() => { showRideRequestRef.current = showRideRequest; }, [showRideRequest]);
+    useEffect(() => { currentRideRef.current = currentRide; }, [currentRide]);
+
+    // Pulse animation for GO button
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+    useEffect(() => {
+        const pulse = Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulseAnim, { toValue: 1.12, duration: 900, useNativeDriver: true }),
+                Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+            ])
+        );
+        if (!isOnline) pulse.start();
+        else pulse.stop();
+        return () => pulse.stop();
+    }, [isOnline]);
 
     const snapPoints = useMemo(() =>
-        isOnline ? ['13%', '45%', '90%'] : ['13%'],
+        isOnline ? ['14%', '42%', '88%'] : ['14%'],
         [isOnline]);
 
     // ─── Location Permissions & Tracking ───
     useEffect(() => {
         (async () => {
             let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                console.log('Permission to access location was denied');
-                return;
-            }
+            if (status !== 'granted') return;
 
-            let location = await Location.getCurrentPositionAsync({});
-            setLocation(location);
+            let loc = await Location.getCurrentPositionAsync({});
+            setLocation(loc);
 
-            // ─── CHECK FOR ACTIVE RIDE ───
-            // If driver has an active ride, redirect them to RideActiveScreen
             try {
                 const activeRide = await getActiveRide();
                 if (activeRide && activeRide.id) {
@@ -86,134 +141,137 @@ export default function HomeScreen() {
                             rideId: String(activeRide.id),
                             pickupLat: String(activeRide.pickupLocationLat),
                             pickupLng: String(activeRide.pickupLocationLng),
-                            pickupAddress: activeRide.pickup_address || "",
+                            pickupAddress: activeRide.pickup_address || '',
                             dropLat: String(activeRide.dropLocationLat),
-                            dropLng: String(activeRide.dropLocationLng)
-                        }
+                            dropLng: String(activeRide.dropLocationLng),
+                        },
                     });
                 }
             } catch (err) {
-                console.log('No active ride for driver or error:', err);
+                console.log('No active ride:', err);
             }
 
-            // Watch position for movement
-            const locationSubscription = await Location.watchPositionAsync(
-                {
-                    accuracy: Location.Accuracy.BestForNavigation,
-                    timeInterval: 500,
-                    distanceInterval: 1,
-                },
-                (newLoc) => {
-                    setLocation(newLoc);
-                }
+            const locationSub = await Location.watchPositionAsync(
+                { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 500, distanceInterval: 1 },
+                (newLoc) => setLocation(newLoc)
             );
-
-            // Watch heading
-            const headingSubscription = await Location.watchHeadingAsync((h) => {
-                setHeading(h.trueHeading);
-            });
+            const headingSub = await Location.watchHeadingAsync((h) => setHeading(h.trueHeading));
 
             return () => {
-                locationSubscription.remove();
-                headingSubscription.remove();
+                locationSub.remove();
+                headingSub.remove();
             };
         })();
     }, []);
 
-    // ─── WebSocket: Listen for ride requests ───
+    const loadHomeData = useCallback(async () => {
+        try {
+            const data = await getDriverHomeData();
+            setHomeData(data);
+        } catch (err) {
+            console.log('Failed to load home data:', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadHomeData();
+    }, [loadHomeData]);
+
+    // ─── WebSocket: ride requests ───
     useEffect(() => {
         if (!isOnline) return;
-
+        console.log('[Home] Registering WebSocket message handler');
         const unsubscribe = wsManager.onMessage(async (data) => {
-            if (data.event === 'NEW_RIDE_REQUEST' && !showRideRequest) {
-                console.log('New ride request received:', data);
+            console.log('[Home] Received WS event:', data.event);
 
-                // Enrich with address data if we have coords
-                let pickupAddress = `${data.pickup?.lat}, ${data.pickup?.lng}`;
-                let destAddress = `${data.drop?.lat}, ${data.drop?.lng}`;
+            // ── Rider cancelled before driver accepted ──
+            if (data.event === 'RIDE_CANCELLED') {
+                if (showRideRequestRef.current && currentRideRef.current?.id === String(data.rideId)) {
+                    setShowRideRequest(false);
+                    setCurrentRide(null);
+                }
+                showCancelBanner('Rider cancelled the request.');
+                return;
+            }
 
-                if (GOOGLE_MAPS_APIKEY && location) {
-                    try {
-                        const driverCoords = `${location.coords.latitude},${location.coords.longitude}`;
-                        const pickupCoords = `${data.pickup?.lat},${data.pickup?.lng}`;
-                        const dropCoords = `${data.drop?.lat},${data.drop?.lng}`;
+            if (data.event === 'NEW_RIDE_REQUEST' && !showRideRequestRef.current) {
+                const pickupLat: number = data.pickup?.lat;
+                const pickupLng: number = data.pickup?.lng;
+                const dropLat: number = data.drop?.lat;
+                const dropLng: number = data.drop?.lng;
+console.log('[Home] Ride request details:', { pickupLat, pickupLng, dropLat, dropLng, data });
+                // 1. Show the modal immediately with what we have (addresses or coords)
+                const rideBase = {
+                    id: String(data.rideId),
+                    status: 'REQUESTED',
+                    pickup_address: data.pickupAddress || `${pickupLat}, ${pickupLng}`,
+                    destination_address: data.dropAddress || `${dropLat}, ${dropLng}`,
+                    pickup_lat: pickupLat,
+                    pickup_lng: pickupLng,
+                    destination_lat: dropLat,
+                    destination_lng: dropLng,
+                    price: data.price || 0,
+                    payment_mode: data.paymentMode || 'CASH',
+                };
+                setCurrentRide(rideBase);
+                setShowRideRequest(true);
 
-                        // Get distance + geocode in parallel
-                        const [distRes, pickupGeo, destGeo] = await Promise.all([
-                            fetch(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${driverCoords}|${pickupCoords}&destinations=${pickupCoords}|${dropCoords}&key=${GOOGLE_MAPS_APIKEY}`).then(r => r.json()),
-                            fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${pickupCoords}&key=${GOOGLE_MAPS_APIKEY}`).then(r => r.json()),
-                            fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${dropCoords}&key=${GOOGLE_MAPS_APIKEY}`).then(r => r.json()),
-                        ]);
+                // 3. Optionally fetch distance / ETA from Google Maps (key-dependent)
+                const curLoc = locationRef.current;
+                if (GOOGLE_MAPS_APIKEY && curLoc) {
+                    const fetchDistanceInfo = async () => {
+                        try {
+                            const driverCoords = `${curLoc.coords.latitude},${curLoc.coords.longitude}`;
+                            const pickupCoords = `${pickupLat},${pickupLng}`;
+                            const dropCoords = `${dropLat},${dropLng}`;
+                            const distRes = await fetch(
+                                `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${driverCoords}|${pickupCoords}&destinations=${pickupCoords}|${dropCoords}&key=${GOOGLE_MAPS_APIKEY}`
+                            ).then(r => r.json());
 
-                        if (pickupGeo.status === 'OK') pickupAddress = pickupGeo.results[0].formatted_address;
-                        if (destGeo.status === 'OK') destAddress = destGeo.results[0].formatted_address;
+                            const driverToPickup = distRes?.rows?.[0]?.elements?.[0];
+                            const tripDetails = distRes?.rows?.[1]?.elements?.[1];
 
-                        const driverToPickup = distRes?.rows?.[0]?.elements?.[0];
-                        const tripDetails = distRes?.rows?.[1]?.elements?.[1];
-
-                        const enrichedRide: Ride = {
-                            id: String(data.rideId),
-                            status: 'REQUESTED',
-                            pickup_address: pickupAddress,
-                            destination_address: destAddress,
-                            pickup_lat: data.pickup?.lat,
-                            pickup_lng: data.pickup?.lng,
-                            destination_lat: data.drop?.lat,
-                            destination_lng: data.drop?.lng,
-                            price: data.price || 0,
-                            pickup_distance_text: driverToPickup?.duration?.text || 'Nearby',
-                            trip_duration_text: tripDetails?.duration?.text || '',
-                            trip_distance_text: tripDetails?.distance?.text || '',
-                        };
-
-                        setCurrentRide(enrichedRide);
-                        setShowRideRequest(true);
-                    } catch (err) {
-                        console.error('Error enriching ride data:', err);
-                        // Show with raw coords
-                        setCurrentRide({
-                            id: String(data.rideId),
-                            status: 'REQUESTED',
-                            pickup_address: pickupAddress,
-                            destination_address: destAddress,
-                            pickup_lat: data.pickup?.lat,
-                            pickup_lng: data.pickup?.lng,
-                            destination_lat: data.drop?.lat,
-                            destination_lng: data.drop?.lng,
-                            price: data.price || 0,
-                        });
-                        setShowRideRequest(true);
-                    }
-                } else {
-                    // No Google Maps API key — show raw data
-                    setCurrentRide({
-                        id: String(data.rideId),
-                        status: 'REQUESTED',
-                        pickup_address: pickupAddress,
-                        destination_address: destAddress,
-                        pickup_lat: data.pickup?.lat,
-                        pickup_lng: data.pickup?.lng,
-                        destination_lat: data.drop?.lat,
-                        destination_lng: data.drop?.lng,
-                        price: data.price || 0,
-                    });
-                    setShowRideRequest(true);
+                            setCurrentRide(prev =>
+                                prev && prev.id === String(data.rideId)
+                                    ? {
+                                          ...prev,
+                                          pickup_distance_text: driverToPickup?.duration?.text || 'Nearby',
+                                          trip_duration_text: tripDetails?.duration?.text || '',
+                                          trip_distance_text: tripDetails?.distance?.text || '',
+                                      }
+                                    : prev
+                            );
+                        } catch (err) {
+                            console.warn('[Home] Distance matrix fetch failed:', err);
+                        }
+                    };
+                    fetchDistanceInfo();
                 }
             }
-        });
 
+        });
         return () => {
+            console.log('[Home] Unsubscribing from WebSocket');
             unsubscribe();
         };
-    }, [isOnline, showRideRequest, location]);
+    }, [isOnline]); // Stable listener, only re-run if online status changes
 
-    // ─── Bottom sheet initial snap ───
     useEffect(() => {
-        const timer = setTimeout(() => {
-            bottomSheetRef.current?.snapToIndex(0);
-        }, 100);
+        const timer = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 100);
         return () => clearTimeout(timer);
     }, []);
+
+    useEffect(() => {
+        if (!location || !mapRef.current || hasCenteredOnUserRef.current) return;
+
+        mapRef.current.animateToRegion({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+        }, 500);
+        hasCenteredOnUserRef.current = true;
+    }, [location]);
 
     const centerOnUser = useCallback(() => {
         if (location && mapRef.current) {
@@ -222,114 +280,102 @@ export default function HomeScreen() {
                 longitude: location.coords.longitude,
                 latitudeDelta: 0.005,
                 longitudeDelta: 0.005,
-            }, 1000);
+            }, 800);
         }
     }, [location]);
 
-    // ─── Go Online / Offline ───
     const toggleOnline = async () => {
         if (isUpdatingStatus) return;
-
         const nextState = !isOnline;
         setIsUpdatingStatus(true);
 
         if (nextState) {
-            // Going ONLINE
-            if (!user || !location) {
-                console.log('Cannot go online: User or location missing');
-                setIsUpdatingStatus(false);
-                return;
-            }
-
+            if (!user || !location) { setIsUpdatingStatus(false); return; }
             try {
-                // Connect WebSocket and register as driver
                 wsManager.connect(user.id);
+                // Also send initial REST location update to ensure backend marks us as active
+                await updateLocationRest(user.id, location.coords.latitude, location.coords.longitude);
 
-                // Start sending location updates at interval
                 locationIntervalRef.current = setInterval(() => {
-                    if (location) {
-                        wsManager.sendLocationUpdate(
-                            user.id,
-                            location.coords.latitude,
-                            location.coords.longitude
-                        );
+                    const curLoc = locationRef.current;
+                    if (curLoc) {
+                        wsManager.sendLocationUpdate(user.id, curLoc.coords.latitude, curLoc.coords.longitude);
                     }
                 }, LOCATION_UPDATE_INTERVAL);
-
                 setIsOnline(true);
             } catch (err) {
                 console.error('Failed to go online:', err);
             }
         } else {
-            // Going OFFLINE
             wsManager.disconnect();
-
-            if (locationIntervalRef.current) {
-                clearInterval(locationIntervalRef.current);
-                locationIntervalRef.current = null;
-            }
-
+            if (locationIntervalRef.current) { clearInterval(locationIntervalRef.current); locationIntervalRef.current = null; }
             bottomSheetRef.current?.snapToIndex(0);
             setIsOnline(false);
         }
-
         setIsUpdatingStatus(false);
     };
 
-    // Clean up on unmount
     useEffect(() => {
         return () => {
             wsManager.disconnect();
-            if (locationIntervalRef.current) {
-                clearInterval(locationIntervalRef.current);
-            }
+            if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
         };
     }, []);
 
     const renderHeader = () => (
         <View style={[styles.headerContainer, { top: insets.top + 10 }]}>
+            {/* Menu button with notification badge */}
             <TouchableOpacity
-                style={styles.circleButton}
+                style={styles.navBtn}
                 onPress={() => router.push('/account')}
+                activeOpacity={0.8}
             >
-                <Ionicons name="menu" size={24} color={Theme.colors.black} />
+                <Ionicons name="menu" size={22} color={BRAND.black} />
                 <View style={styles.badge}>
-                    <Text style={styles.badgeText}>57</Text>
+                    <Text style={styles.badgeText}>{badgeText}</Text>
                 </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.earningsPill}>
-                <Text style={styles.earningsText}>
-                    <Text style={{ color: Theme.colors.orange }}>₹</Text>96.66
+            {/* Brand pill — matches rider app */}
+            <View style={styles.brandPill}>
+                <Text style={styles.brandText}>
+                    <Text style={styles.brandSawari}>Sawari</Text>
+                    <Text style={styles.brandAuto}>Auto</Text>
                 </Text>
-            </TouchableOpacity>
+                <View style={styles.driverTag}>
+                    <Text style={styles.driverTagText}>DRIVER</Text>
+                </View>
+            </View>
 
-            <TouchableOpacity style={styles.circleButton}>
-                <Ionicons name="search" size={24} color={Theme.colors.black} />
+            {/* Earnings pill */}
+            <TouchableOpacity style={styles.earningsPill} activeOpacity={0.85}>
+                <Text style={styles.earningsSymbol}>₹</Text>
+                <Text style={styles.earningsValue}>{headerEarningsText}</Text>
             </TouchableOpacity>
         </View>
     );
 
     const renderFloatingButtons = () => (
-        <>
-            <TouchableOpacity style={[styles.floatingLeft, { top: height * 0.5 }]}>
-                <View style={[styles.circleButton, styles.shadow]}>
-                    <Ionicons name="shield-checkmark" size={24} color={Theme.colors.green} />
-                </View>
+        <View style={[styles.rightButtonsContainer, { bottom: height * 0.22 }]}>
+            {/* Recenter */}
+            <TouchableOpacity
+                style={[styles.floatBtn, styles.shadow]}
+                onPress={centerOnUser}
+                activeOpacity={0.85}
+            >
+                <Ionicons name="navigate" size={20} color={BRAND.green} />
             </TouchableOpacity>
 
-            <View style={styles.rightButtonsContainer}>
-                <TouchableOpacity
-                    style={[styles.squareButton, styles.shadow, { marginBottom: 15 }]}
-                    onPress={centerOnUser}
-                >
-                    <MaterialCommunityIcons name="crosshairs-gps" size={26} color={Theme.colors.green} />
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.squareButton, styles.shadow]}>
-                    <Ionicons name="bar-chart" size={24} color={Theme.colors.orange} />
-                </TouchableOpacity>
-            </View>
-        </>
+            {/* Stats */}
+            <TouchableOpacity style={[styles.floatBtn, styles.shadow]} activeOpacity={0.85}>
+                <Ionicons name="bar-chart" size={20} color={BRAND.black} />
+            </TouchableOpacity>
+
+            {/* Safety */}
+            <TouchableOpacity style={[styles.floatBtn, styles.shadow]} activeOpacity={0.85}>
+                <Ionicons name="shield-checkmark" size={20} color={BRAND.green} />
+            </TouchableOpacity>
+        </View>
     );
 
     return (
@@ -339,17 +385,17 @@ export default function HomeScreen() {
             <MapView
                 ref={mapRef}
                 provider={PROVIDER_GOOGLE}
-                style={styles.map}
+                style={StyleSheet.absoluteFill}
                 customMapStyle={MAP_STYLE}
                 initialRegion={{
-                    latitude: location?.coords.latitude || 23.1890861,
-                    longitude: location?.coords.longitude || 77.4337776,
+                    latitude: location?.coords.latitude || 21.1458,
+                    longitude: location?.coords.longitude || 79.0882,
                     latitudeDelta: 0.005,
                     longitudeDelta: 0.005,
                 }}
                 showsUserLocation={false}
-                rotateEnabled={true}
-                pitchEnabled={true}
+                rotateEnabled
+                pitchEnabled
             >
                 {location && (
                     <Marker
@@ -360,11 +406,16 @@ export default function HomeScreen() {
                         flat
                         anchor={{ x: 0.5, y: 0.5 }}
                     >
-                        <View style={[styles.navigationArrowContainer, { transform: [{ rotate: `${heading}deg` }] }]}>
-                            <View style={styles.navigationArrowOuter}>
-                                <View style={styles.navigationArrowInner}>
-                                    <MaterialCommunityIcons name="navigation" size={20} color="black" />
-                                </View>
+                        <View style={[styles.navArrowWrap, { transform: [{ rotate: `${heading}deg` }] }]}>
+                            <View style={[
+                                styles.navArrowOuter,
+                                isOnline && { borderColor: BRAND.green, backgroundColor: BRAND.green + '15' }
+                            ]}>
+                                <MaterialCommunityIcons
+                                    name="navigation"
+                                    size={18}
+                                    color={isOnline ? BRAND.green : BRAND.black}
+                                />
                             </View>
                         </View>
                     </Marker>
@@ -374,71 +425,128 @@ export default function HomeScreen() {
             {renderHeader()}
             {renderFloatingButtons()}
 
+            {/* ── Cancellation Banner ── */}
+            {cancelledBanner && (
+                <View style={styles.cancelBanner}>
+                    <Ionicons name="close-circle" size={18} color="white" />
+                    <Text style={styles.cancelBannerText}>{cancelledBanner}</Text>
+                </View>
+            )}
+
+            {/* GO Button — shown when offline */}
             {!isOnline && (
                 <TouchableOpacity
-                    style={[styles.goButtonContainer, { bottom: '18%' }]}
+                    style={styles.goButtonWrap}
                     onPress={toggleOnline}
                     disabled={isUpdatingStatus}
+                    activeOpacity={0.9}
                 >
-                    <View style={styles.goButtonOuter}>
-                        <View style={styles.goButtonInner}>
-                            {isUpdatingStatus ? (
-                                <ActivityIndicator color="white" />
-                            ) : (
-                                <Text style={styles.goText}>GO</Text>
-                            )}
-                        </View>
-                    </View>
+                    <Animated.View style={[styles.goPulse, { transform: [{ scale: pulseAnim }] }]} />
+                    <LinearGradient
+                        colors={[BRAND.green, BRAND.greenDark]}
+                        style={styles.goButton}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                    >
+                        {isUpdatingStatus ? (
+                            <ActivityIndicator color={BRAND.white} />
+                        ) : (
+                            <Text style={styles.goText}>GO</Text>
+                        )}
+                    </LinearGradient>
                 </TouchableOpacity>
             )}
 
+            {/* Bottom Sheet */}
             <BottomSheet
                 ref={bottomSheetRef}
                 index={0}
                 snapPoints={snapPoints}
-                backgroundStyle={styles.bottomSheetBackground}
-                handleIndicatorStyle={{ backgroundColor: '#CCC', width: 40 }}
+                backgroundStyle={styles.sheetBackground}
+                handleIndicatorStyle={styles.sheetHandle}
                 style={{ zIndex: 100 }}
                 enableContentPanningGesture={isOnline}
                 enableHandlePanningGesture={isOnline}
             >
-                <BottomSheetView style={styles.bottomSheetContent}>
-                    <View style={styles.bottomSheetHeader}>
-                        <TouchableOpacity style={styles.bottomSheetIcon}>
-                            <MaterialCommunityIcons name="tune" size={28} color="black" />
+                <BottomSheetView style={styles.sheetContent}>
+
+                    {/* Status Row */}
+                    <View style={styles.sheetStatusRow}>
+                        <TouchableOpacity style={styles.sheetIconBtn}>
+                            <MaterialCommunityIcons name="tune-variant" size={22} color={BRAND.black} />
                         </TouchableOpacity>
 
-                        <Text style={styles.offlineText}>
-                            {isOnline ? "You're online" : "You're offline"}
-                        </Text>
+                        <View style={styles.statusCenter}>
+                            <View style={[styles.statusDot, { backgroundColor: isOnline ? BRAND.green : BRAND.gray }]} />
+                            <Text style={styles.statusText}>
+                                {isOnline ? "You're online" : "You're offline"}
+                            </Text>
+                        </View>
 
-                        <TouchableOpacity style={styles.bottomSheetIcon}>
-                            <MaterialCommunityIcons name="menu" size={28} color="black" />
+                        <TouchableOpacity style={styles.sheetIconBtn}>
+                            <MaterialCommunityIcons name="account-circle-outline" size={22} color={BRAND.black} />
                         </TouchableOpacity>
                     </View>
 
-                    <View style={styles.offlineDetails}>
-                        <View style={styles.separator} />
-                        <Text style={styles.offlineSubtitle}>
-                            {isOnline
-                                ? "Searching for trips near you. Stay on the map to receive requests."
-                                : "You are currently offline. Tap GO to start accepting rides."}
-                        </Text>
+                    <View style={styles.sheetDivider} />
 
-                        {isOnline && (
+                    {/* Subtitle */}
+                    <Text style={styles.sheetSubtitle}>
+                        {isOnline
+                            ? 'Searching for trips near you. Stay on the map to receive requests.'
+                            : 'Tap GO on the map to start accepting rides.'}
+                    </Text>
+
+                    {/* Online stats or offline CTA */}
+                    {isOnline ? (
+                        <>
+                            {/* Today's stats strip */}
+                            <View style={styles.statsStrip}>
+                                <View style={styles.statBlock}>
+                                    <Text style={styles.statValue}>{todayTripsText}</Text>
+                                    <Text style={styles.statLabel}>TRIPS</Text>
+                                </View>
+                                <View style={styles.statDivider} />
+                                <View style={styles.statBlock}>
+                                    <Text style={[styles.statValue, { color: BRAND.green }]}>{todayEarningsText}</Text>
+                                    <Text style={styles.statLabel}>EARNED</Text>
+                                </View>
+                                <View style={styles.statDivider} />
+                                <View style={styles.statBlock}>
+                                    <Text style={styles.statValue}>{ratingText}</Text>
+                                    <Text style={styles.statLabel}>RATING</Text>
+                                </View>
+                            </View>
+
+                            {/* Go Offline button */}
                             <TouchableOpacity
-                                style={styles.flatStopButton}
+                                style={styles.offlineBtn}
                                 onPress={toggleOnline}
                                 disabled={isUpdatingStatus}
+                                activeOpacity={0.85}
                             >
                                 {isUpdatingStatus ? (
-                                    <ActivityIndicator color="white" />
+                                    <ActivityIndicator color={BRAND.white} />
                                 ) : (
-                                    <Text style={styles.flatStopButtonText}>GO OFFLINE</Text>
+                                    <Text style={styles.offlineBtnText}>GO OFFLINE</Text>
                                 )}
                             </TouchableOpacity>
-                        )}
-                    </View>
+                        </>
+                    ) : (
+                        /* Offline tip cards */
+                        <View style={styles.tipRow}>
+                            <View style={styles.tipCard}>
+                                <Ionicons name="time-outline" size={20} color={BRAND.green} />
+                                <Text style={styles.tipTitle}>Peak hours</Text>
+                                <Text style={styles.tipSub}>8–10 AM, 5–8 PM</Text>
+                            </View>
+                            <View style={styles.tipCard}>
+                                <Ionicons name="trending-up-outline" size={20} color={BRAND.yellow} />
+                                <Text style={styles.tipTitle}>Surge active</Text>
+                                <Text style={styles.tipSub}>Sitabuldi area</Text>
+                            </View>
+                        </View>
+                    )}
                 </BottomSheetView>
             </BottomSheet>
 
@@ -446,23 +554,21 @@ export default function HomeScreen() {
                 isVisible={showRideRequest}
                 ride={currentRide}
                 onAccept={async (rideId) => {
-                    console.log('Ride accepted:', rideId);
                     try {
                         const response = await acceptRideApi(Number(rideId));
                         setShowRideRequest(false);
-                        
                         if (currentRide) {
                             router.push({
                                 pathname: '/ride-active',
-                                params: { 
+                                params: {
                                     rideId: String(rideId),
                                     pickupLat: String(currentRide.pickup_lat),
                                     pickupLng: String(currentRide.pickup_lng),
                                     pickupAddress: currentRide.pickup_address,
                                     dropLat: String(currentRide.destination_lat),
                                     dropLng: String(currentRide.destination_lng),
-                                    otp: String(response.otp)
-                                }
+                                    otp: String(response.otp),
+                                },
                             });
                         }
                     } catch (err) {
@@ -478,205 +584,353 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Theme.colors.white,
+        backgroundColor: BRAND.lightGray,
     },
-    map: {
-        ...StyleSheet.absoluteFillObject,
+
+    // ─── Cancellation Banner ──────────────────────────────────
+    cancelBanner: {
+        position: 'absolute',
+        top: 100,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#D32F2F',
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        borderRadius: 14,
+        zIndex: 999,
+        elevation: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.22,
+        shadowRadius: 8,
+        maxWidth: '88%',
     },
+    cancelBannerText: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '700',
+        flexShrink: 1,
+    },
+
+    // ─── Header ───────────────────────────────────────────────
     headerContainer: {
         position: 'absolute',
-        left: 20,
-        right: 20,
+        left: 16,
+        right: 16,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        zIndex: 10,
+        zIndex: 20,
     },
-    circleButton: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: Theme.colors.white,
+    navBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: BRAND.white,
         justifyContent: 'center',
         alignItems: 'center',
-        elevation: 4,
-        shadowColor: Theme.colors.black,
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-    },
-    shadow: {
-        elevation: 4,
-        shadowColor: Theme.colors.black,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
+        elevation: 5,
     },
     badge: {
         position: 'absolute',
-        top: -2,
-        right: -2,
-        backgroundColor: Theme.colors.orange,
-        borderRadius: 10,
-        width: 20,
-        height: 20,
+        top: -3,
+        right: -3,
+        backgroundColor: BRAND.orange,
+        borderRadius: 9,
+        minWidth: 18,
+        height: 18,
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 2,
-        borderColor: Theme.colors.white,
+        borderColor: BRAND.white,
+        paddingHorizontal: 3,
     },
     badgeText: {
-        color: Theme.colors.white,
-        fontSize: 10,
-        fontWeight: 'bold',
+        color: BRAND.white,
+        fontSize: 9,
+        fontWeight: '900',
+    },
+    brandPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: BRAND.white,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        borderRadius: 22,
+        gap: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.12,
+        shadowRadius: 8,
+        elevation: 5,
+    },
+    brandText: {
+        fontSize: 15,
+        fontWeight: '900',
+    },
+    brandSawari: {
+        color: BRAND.yellow,
+    },
+    brandAuto: {
+        color: BRAND.black,
+    },
+    driverTag: {
+        backgroundColor: BRAND.black,
+        paddingHorizontal: 7,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    driverTagText: {
+        color: BRAND.yellow,
+        fontSize: 8,
+        fontWeight: '900',
+        letterSpacing: 0.8,
     },
     earningsPill: {
-        backgroundColor: Theme.colors.black,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 25,
-        borderWidth: 1,
-        borderColor: Theme.colors.darkGray,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: BRAND.black,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        borderRadius: 22,
+        gap: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.18,
+        shadowRadius: 8,
+        elevation: 5,
     },
-    earningsText: {
-        color: Theme.colors.white,
-        fontSize: 18,
-        fontWeight: '700',
+    earningsSymbol: {
+        color: BRAND.yellow,
+        fontSize: 14,
+        fontWeight: '800',
     },
-    floatingLeft: {
-        position: 'absolute',
-        left: 20,
-        zIndex: 5,
+    earningsValue: {
+        color: BRAND.white,
+        fontSize: 15,
+        fontWeight: '800',
     },
+
+    // ─── Floating right buttons ────────────────────────────────
     rightButtonsContainer: {
         position: 'absolute',
-        right: 20,
-        top: height * 0.42,
-        zIndex: 5,
+        right: 16,
+        zIndex: 10,
+        gap: 10,
     },
-    squareButton: {
+    floatBtn: {
         width: 44,
         height: 44,
-        borderRadius: 10,
-        backgroundColor: Theme.colors.white,
+        borderRadius: 22,
+        backgroundColor: BRAND.white,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    navigationArrowContainer: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    navigationArrowOuter: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: Theme.colors.white,
-        borderWidth: 2,
-        borderColor: Theme.colors.green,
-        justifyContent: 'center',
-        alignItems: 'center',
-        elevation: 5,
-        shadowColor: Theme.colors.black,
+    shadow: {
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 3,
+        shadowOpacity: 0.13,
+        shadowRadius: 6,
+        elevation: 5,
     },
-    navigationArrowInner: {
+
+    // ─── Marker ────────────────────────────────────────────────
+    navArrowWrap: {
+        width: 38,
+        height: 38,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    goButtonContainer: {
+    navArrowOuter: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: BRAND.white,
+        borderWidth: 2.5,
+        borderColor: BRAND.gray,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 6,
+    },
+
+    // ─── GO Button ─────────────────────────────────────────────
+    goButtonWrap: {
         position: 'absolute',
         alignSelf: 'center',
-        zIndex: 5,
+        bottom: '20%',
+        zIndex: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    goButtonOuter: {
-        width: 90,
-        height: 90,
-        borderRadius: 45,
-        backgroundColor: Theme.colors.green + '40',
+    goPulse: {
+        position: 'absolute',
+        width: 88,
+        height: 88,
+        borderRadius: 44,
+        backgroundColor: BRAND.green + '30',
+    },
+    goButton: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    goButtonInner: {
-        width: 70,
-        height: 70,
-        borderRadius: 35,
-        backgroundColor: Theme.colors.green,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 3,
-        borderColor: 'rgba(255, 255, 255, 0.4)',
+        shadowColor: BRAND.green,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.45,
+        shadowRadius: 12,
+        elevation: 10,
     },
     goText: {
-        color: Theme.colors.white,
-        fontSize: 22,
-        fontWeight: 'bold',
+        color: BRAND.white,
+        fontSize: 21,
+        fontWeight: '900',
+        letterSpacing: 2,
+    },
+
+    // ─── Bottom Sheet ──────────────────────────────────────────
+    sheetBackground: {
+        backgroundColor: BRAND.white,
+        borderTopLeftRadius: 26,
+        borderTopRightRadius: 26,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.09,
+        shadowRadius: 16,
+        elevation: 20,
+    },
+    sheetHandle: {
+        backgroundColor: '#E0E0E0',
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+    },
+    sheetContent: {
+        flex: 1,
+        paddingHorizontal: 20,
+        paddingBottom: 20,
+    },
+    sheetStatusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 4,
+    },
+    sheetIconBtn: {
+        width: 38,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: BRAND.lightGray,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    statusCenter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+    },
+    statusDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    statusText: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: BRAND.black,
+    },
+    sheetDivider: {
+        height: 1,
+        backgroundColor: BRAND.border,
+        marginVertical: 14,
+    },
+    sheetSubtitle: {
+        fontSize: 13,
+        color: BRAND.gray,
+        textAlign: 'center',
+        lineHeight: 20,
+        paddingHorizontal: 10,
+        marginBottom: 18,
+    },
+
+    // ─── Stats strip (online) ─────────────────────────────────
+    statsStrip: {
+        flexDirection: 'row',
+        backgroundColor: BRAND.lightGray,
+        borderRadius: 16,
+        paddingVertical: 14,
+        paddingHorizontal: 10,
+        marginBottom: 16,
+    },
+    statBlock: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    statValue: {
+        fontSize: 17,
+        fontWeight: '800',
+        color: BRAND.black,
+        marginBottom: 3,
+    },
+    statLabel: {
+        fontSize: 9,
+        fontWeight: '800',
+        color: BRAND.gray,
         letterSpacing: 1,
     },
-    bottomSheetBackground: {
-        backgroundColor: Theme.colors.white,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        elevation: 10,
-        shadowColor: Theme.colors.black,
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 10,
+    statDivider: {
+        width: 1,
+        backgroundColor: BRAND.border,
+        marginVertical: 4,
     },
-    bottomSheetContent: {
-        flex: 1,
-        paddingHorizontal: 20,
-    },
-    bottomSheetHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        height: 60,
-    },
-    bottomSheetIcon: {
-        padding: 5,
-    },
-    offlineText: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: Theme.colors.black,
-        flex: 1,
-        textAlign: 'center',
-    },
-    offlineDetails: {
-        marginTop: 10,
-        alignItems: 'center',
-    },
-    separator: {
-        height: 1,
-        backgroundColor: Theme.colors.border,
-        width: '100%',
-        marginBottom: 20,
-    },
-    offlineSubtitle: {
-        color: Theme.colors.gray,
-        fontSize: 15,
-        textAlign: 'center',
-        paddingHorizontal: 20,
-        marginBottom: 20,
-        lineHeight: 22,
-    },
-    flatStopButton: {
-        backgroundColor: Theme.colors.orange,
-        width: '100%',
-        height: 56,
+
+    // ─── Go Offline button ────────────────────────────────────
+    offlineBtn: {
+        backgroundColor: BRAND.black,
+        height: 52,
         borderRadius: 14,
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 20,
     },
-    flatStopButtonText: {
-        color: Theme.colors.white,
-        fontSize: 17,
-        fontWeight: '700',
-        letterSpacing: 0.5,
-    }
+    offlineBtnText: {
+        color: BRAND.white,
+        fontSize: 14,
+        fontWeight: '900',
+        letterSpacing: 1.5,
+    },
+
+    // ─── Offline tip cards ─────────────────────────────────────
+    tipRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    tipCard: {
+        flex: 1,
+        backgroundColor: BRAND.lightGray,
+        borderRadius: 14,
+        padding: 14,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: BRAND.border,
+    },
+    tipTitle: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: BRAND.black,
+    },
+    tipSub: {
+        fontSize: 12,
+        color: BRAND.gray,
+        fontWeight: '600',
+    },
 });

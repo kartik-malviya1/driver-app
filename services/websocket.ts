@@ -17,7 +17,6 @@ class WebSocketManager {
    */
   connect(driverId: number) {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WS] Already connected');
       return;
     }
 
@@ -30,11 +29,9 @@ class WebSocketManager {
 
   private _connect() {
     try {
-      console.log(`[WS] Connecting to ${WS_BASE_URL}...`);
       this.ws = new WebSocket(WS_BASE_URL);
 
       this.ws.onopen = () => {
-        console.log('[WS] Connected');
         this.reconnectAttempts = 0;
 
         // Register as driver
@@ -53,7 +50,6 @@ class WebSocketManager {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data as string);
-          console.log('[WS] Received:', data.type || data.event);
           this.messageHandlers.forEach((handler) => handler(data));
         } catch (err) {
           console.error('[WS] Failed to parse message:', err);
@@ -61,7 +57,6 @@ class WebSocketManager {
       };
 
       this.ws.onclose = () => {
-        console.log('[WS] Connection closed');
         this._stopPing();
 
         if (!this.isIntentionallyClosed) {
@@ -95,7 +90,6 @@ class WebSocketManager {
       this.ws = null;
     }
 
-    console.log('[WS] Disconnected intentionally');
   }
 
   /**
@@ -146,7 +140,6 @@ class WebSocketManager {
     }
 
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`);
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectAttempts++;
