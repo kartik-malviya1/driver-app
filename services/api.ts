@@ -183,6 +183,7 @@ export interface DriverHomeResponse {
     name: string;
     status: "OFFLINE" | "ONLINE" | "BUSY";
     rating: number | null;
+    isApproved: boolean;
   };
   stats: {
     todayTrips: number;
@@ -207,6 +208,9 @@ export interface DriverAccountResponse {
     vehicleNumber: string | null;
     licenseNumber: string | null;
     photoUrl: string | null;
+    licensePhotoUrl: string | null;
+    aadhaarCardPhotoUrl: string | null;
+    isApproved: boolean;
     status: "OFFLINE" | "ONLINE" | "BUSY";
     rating: number | null;
     createdAt: string;
@@ -225,6 +229,8 @@ export interface UpdateDriverAccountPayload {
   vehicleNumber?: string;
   licenseNumber?: string;
   photoUrl?: string;
+  licensePhotoUrl?: string;
+  aadhaarCardPhotoUrl?: string;
 }
 
 export async function getDriverAccount(): Promise<DriverAccountResponse> {

@@ -5,15 +5,8 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-    ActivityIndicator,
-    Animated,
-    Dimensions,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import { Alert, Animated, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import RideRequestModal from '../components/RideRequestModal';
@@ -307,6 +300,15 @@ console.log('[Home] Ride request details:', { pickupLat, pickupLng, dropLat, dro
         setIsUpdatingStatus(true);
 
         if (nextState) {
+            if (!homeData?.driver.isApproved) {
+                Alert.alert(
+                    'Account Pending Approval',
+                    'Your documents are being reviewed. You will be able to go online once the admin approves your account.',
+                    [{ text: 'OK' }]
+                );
+                setIsUpdatingStatus(false);
+                return;
+            }
             if (!user || !location) { setIsUpdatingStatus(false); return; }
             try {
                 wsManager.connect(user.id);

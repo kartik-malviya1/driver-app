@@ -94,7 +94,7 @@ export default function UploadScreen() {
         // Step 3: Save dummy URL and metadata
         const dummyUrl = `https://example.com/uploads/${doc}_${Date.now()}.jpg`;
         await saveDocUrl(doc, dummyUrl);
-        
+
         if (doc === 'driving_license') {
             await saveLicenseNumber(licenseNumber);
         }

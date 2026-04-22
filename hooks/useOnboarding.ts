@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { updateDriverAccount } from '../services/api';
 
 const KEYS = {
     PHONE: '@driver_app/phone',
@@ -144,8 +145,21 @@ function useOnboardingBase() {
     };
 
     const completeOnboarding = async () => {
-        await AsyncStorage.setItem(KEYS.ONBOARDING_DONE, 'true');
-        setState(prev => ({ ...prev, isOnboardingDone: true }));
+        try {
+            await updateDriverAccount({
+                name: state.fullName || undefined,
+                vehicleNumber: state.vehicleNumber || undefined,
+                licenseNumber: state.licenseNumber || undefined,
+                photoUrl: state.photoUrl || undefined,
+                licensePhotoUrl: state.licensePhotoUrl || undefined,
+                aadhaarCardPhotoUrl: state.aadhaarCardPhotoUrl || undefined,
+            });
+            await AsyncStorage.setItem(KEYS.ONBOARDING_DONE, 'true');
+            setState(prev => ({ ...prev, isOnboardingDone: true }));
+        } catch (error) {
+            console.error('Failed to sync onboarding data with backend:', error);
+            throw error;
+        }
     };
 
     const resetOnboarding = async () => {

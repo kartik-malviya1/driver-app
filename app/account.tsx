@@ -202,7 +202,16 @@ export default function AccountScreen() {
                 <View style={styles.card}>
                     {renderDetailRow('car-outline', 'Vehicle Number', profile?.vehicleNumber || 'Not provided')}
                     {renderDetailRow('card-account-details-outline', 'License Number', profile?.licenseNumber || 'Not provided')}
-                    {renderDetailRow('shield-check-outline', 'Account Status', profile?.status || 'OFFLINE', true)}
+                    <View style={[styles.detailRow, styles.rowDivider]}>
+                        <View style={styles.detailRowLeft}>
+                            <MaterialCommunityIcons name="check-decagram-outline" size={22} color={profile?.isApproved ? Theme.colors.green : Theme.colors.orange} />
+                            <Text style={styles.detailLabel}>Approval Status</Text>
+                        </View>
+                        <Text style={[styles.detailValue, { color: profile?.isApproved ? Theme.colors.green : Theme.colors.orange }]}>
+                            {profile?.isApproved ? 'Approved' : 'Pending Approval'}
+                        </Text>
+                    </View>
+                    {renderDetailRow('shield-check-outline', 'Current Status', profile?.status || 'OFFLINE', true)}
                 </View>
 
                 {/* Account Dashboard */}
