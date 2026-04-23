@@ -1,4 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -17,7 +18,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
-import { getDriverAccount, type DriverAccountResponse } from '../services/api';
+import { getDriverAccount, updateDriverAccount, type DriverAccountResponse } from '../services/api';
+import { uploadToCloudinary } from '../services/cloudinary';
+import { Image } from 'react-native';
 
 export default function AccountScreen() {
     const { user, signOut } = useAuth();
@@ -65,6 +68,36 @@ export default function AccountScreen() {
                 }
             ]
         );
+    };
+
+    const handleUpdatePhoto = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'We need access to your photos to update your profile photo.');
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            try {
+                setLoading(true);
+                const uploadResult = await uploadToCloudinary(result.assets[0].uri);
+                await updateDriverAccount({ photoUrl: uploadResult.secure_url });
+                loadAccount(true);
+                Alert.alert('Success', 'Profile photo updated successfully!');
+            } catch (error: any) {
+                console.error('Failed to update photo:', error);
+                Alert.alert('Error', error.message || 'Failed to update profile photo.');
+            } finally {
+                setLoading(false);
+            }
+        }
     };
 
     const renderDetailRow = (icon: string, label: string, value: string, isLast = false) => (
@@ -158,9 +191,13 @@ export default function AccountScreen() {
             >
                 {/* Clean Profile Header */}
                 <View style={styles.profileHeader}>
-                    <View style={styles.avatarWrapper}>
+                    <TouchableOpacity style={styles.avatarWrapper} onPress={handleUpdatePhoto} activeOpacity={0.8}>
                         <View style={styles.avatarContainer}>
-                            <Text style={styles.avatarText}>{initial}</Text>
+                            {profile?.photoUrl ? (
+                                <Image source={{ uri: profile.photoUrl }} style={styles.avatarImage} />
+                            ) : (
+                                <Text style={styles.avatarText}>{initial}</Text>
+                            )}
                         </View>
                         <View style={[
                             styles.statusBadge,
@@ -168,7 +205,10 @@ export default function AccountScreen() {
                         ]}>
                             <View style={styles.statusDot} />
                         </View>
-                    </View>
+                        <View style={styles.editBadge}>
+                            <Ionicons name="camera" size={12} color={Theme.colors.white} />
+                        </View>
+                    </TouchableOpacity>
 
                     <Text style={styles.userName}>{profile?.name || 'Driver Partner'}</Text>
                     <Text style={styles.userPhone}>{profile?.phoneNumber || 'No phone number'}</Text>
@@ -318,6 +358,24 @@ const styles = StyleSheet.create({
         height: 12,
         borderRadius: 6,
         backgroundColor: '#FFF',
+    },
+    avatarImage: {
+        width: 92,
+        height: 92,
+        borderRadius: 46,
+    },
+    editBadge: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        backgroundColor: Theme.colors.green,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: Theme.colors.white,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     userName: {
         fontSize: 24,

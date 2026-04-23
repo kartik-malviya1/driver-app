@@ -4,13 +4,17 @@
  */
 
 // Use your ngrok HTTPS URL here (no trailing slash)
-export const API_BASE_URL = "http://192.168.1.2:3000";
+export const API_BASE_URL = "http://192.168.1.5:3000";
 
 // WebSocket URL (wss for ngrok, ws for local)
-export const WS_BASE_URL = "ws://192.168.1.2:3000/ws";
+export const WS_BASE_URL = "ws://192.168.1.5:3000/ws";
 
 // Location update interval (ms)
 export const LOCATION_UPDATE_INTERVAL = 5000;
 
 // Google Maps API key
 export const GOOGLE_API_KEY = "AIzaSyAfOQyqsb67GemOyufgIsggGUUY4TW4by4";
+
+// Cloudinary Config
+export const CLOUDINARY_CLOUD_NAME = "dqfjggcju";
+export const CLOUDINARY_UPLOAD_PRESET = "tanxmis";

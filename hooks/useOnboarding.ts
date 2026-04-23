@@ -180,7 +180,7 @@ function useOnboardingBase() {
     };
 
     // Computed helpers
-    const completedCount = Object.values(state.docs).filter(s => s === 'completed').length;
+    const completedCount = Object.values(state.docs).filter(s => s === 'completed' || s === 'in_review').length;
     const pendingCount = Object.values(state.docs).filter(s => s === 'pending').length;
     const nextPendingDoc = (Object.entries(state.docs) as [DocKey, DocStatus][])
         .find(([, s]) => s === 'pending')?.[0] ?? null;

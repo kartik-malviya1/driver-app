@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../../constants/theme';
+import * as ImagePicker from 'expo-image-picker';
 import { DocKey, useOnboarding } from '../../hooks/useOnboarding';
+import { uploadToCloudinary } from '../../services/cloudinary';
 
 type UploadPhase = 'idle' | 'uploading' | 'verifying' | 'done';
 
@@ -67,44 +69,62 @@ export default function UploadScreen() {
 
     const meta = DOC_META[doc] ?? DOC_META['profile_photo'];
 
-    const handlePickPhoto = () => {
-        // Simulate picking a photo — in production use expo-image-picker
-        Alert.alert(
-            'Simulate Upload',
-            'In production this opens the camera/gallery. Simulating a successful upload now.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Simulate Upload',
-                    onPress: () => runUploadFlow(),
-                },
-            ]
-        );
-    };
-
-    const runUploadFlow = async () => {
-        // Step 1: Uploading
-        setPhase('uploading');
-        await delay(500);
-
-        // Step 2: Verifying
-        setPhase('verifying');
-        await delay(500);
-
-        // Step 3: Save dummy URL and metadata
-        const dummyUrl = `https://example.com/uploads/${doc}_${Date.now()}.jpg`;
-        await saveDocUrl(doc, dummyUrl);
-
-        if (doc === 'driving_license') {
-            await saveLicenseNumber(licenseNumber);
+    const handlePickPhoto = async () => {
+        if (doc === 'driving_license' && !licenseNumber) {
+            Alert.alert('Required', 'Please enter your license number first.');
+            return;
         }
 
-        // Mark as in_review / completed
-        await updateDocStatus(doc, 'completed');
-        setPhase('done');
+        // Ask for permissions
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'We need access to your photos to upload documents.');
+            return;
+        }
 
-        // Go back to checklist
-        router.replace('/(onboarding)/checklist');
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            aspect: doc === 'profile_photo' ? [1, 1] : [4, 3],
+            quality: 0.8,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            const uri = result.assets[0].uri;
+            runUploadFlow(uri);
+        }
+    };
+
+    const runUploadFlow = async (uri: string) => {
+        try {
+            // Step 1: Uploading
+            setPhase('uploading');
+            
+            // Upload to Cloudinary
+            const uploadResult = await uploadToCloudinary(uri);
+            
+            // Step 2: Verifying (brief delay for UI feedback)
+            setPhase('verifying');
+            await delay(800);
+
+            // Step 3: Save actual URL and metadata
+            await saveDocUrl(doc, uploadResult.secure_url);
+
+            if (doc === 'driving_license') {
+                await saveLicenseNumber(licenseNumber);
+            }
+
+            // Mark as completed
+            await updateDocStatus(doc, 'in_review');
+            setPhase('done');
+
+            // Go back to checklist
+            router.replace('/(onboarding)/checklist');
+        } catch (error: any) {
+            setPhase('idle');
+            console.error('Upload failed:', error);
+            Alert.alert('Upload Failed', error.message || 'Something went wrong while uploading. Please try again.');
+        }
     };
 
     if (phase === 'uploading' || phase === 'verifying') {
