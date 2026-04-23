@@ -64,30 +64,49 @@ export default function ChecklistScreen() {
 
         setIsFinishing(true);
         try {
-            const signupData = {
+            const syncData = {
                 name: state.fullName || '',
                 email: state.email || '',
                 phoneNumber: state.phone || '',
                 vehicleNumber: state.vehicleNumber || '',
                 licenseNumber: state.licenseNumber || '',
                 licensePhotoUrl: state.licensePhotoUrl || '',
-                AadhaarCardPhotoUrl: state.aadhaarCardPhotoUrl || '',
+                aadhaarCardPhotoUrl: state.aadhaarCardPhotoUrl || '',
                 photoUrl: state.photoUrl || '',
+                rcPhotoUrl: state.rcPhotoUrl || '',
             };
 
-            const result = await apiSignup(signupData);
+            if (user) {
+                // If already authenticated, just update the account
+                await completeOnboarding();
+            } else {
+                // Not authenticated, try signup
+                try {
+                    const result = await apiSignup(syncData);
+                    // Log in with returned JWT
+                    await loginWithToken(result.token, result.user);
+                    // Mark local onboarding as done (this call won't sync again if we just signed up)
+                    await completeOnboarding();
+                } catch (signupErr: any) {
+                    // If signup fails because user exists, we might need them to log in first
+                    // But if they are at this step, we should try to handle it gracefully
+                    if (signupErr.message?.toLowerCase().includes('already exist') || signupErr.message?.toLowerCase().includes('duplicate')) {
+                        Alert.alert(
+                            'Account Exists',
+                            'An account with this phone number already exists. Please log in to sync your data.',
+                            [{ text: 'Go to Login', onPress: () => router.replace('/(auth)/phone') }]
+                        );
+                        return;
+                    }
+                    throw signupErr;
+                }
+            }
 
-            // 1. Log in with returned JWT
-            await loginWithToken(result.token, result.user);
-
-            // 2. Mark onboarding as done
-            await completeOnboarding();
-
-            // 3. Go home
+            // Go home
             router.replace('/home');
         } catch (err: any) {
-            console.error('Final signup error:', err);
-            Alert.alert('Registration Failed', err.message || 'Could not complete registration. Please try again.');
+            console.error('Final sync error:', err);
+            Alert.alert('Sync Failed', err.message || 'Could not sync data with backend. Please try again.');
         } finally {
             setIsFinishing(false);
         }

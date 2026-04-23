@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -178,8 +178,10 @@ export default function HomeScreen() {
         try {
             const data = await getDriverHomeData();
             setHomeData(data);
+            return data;
         } catch (err) {
             console.log('Failed to load home data:', err);
+            return null;
         }
     }, []);
 
@@ -300,7 +302,10 @@ console.log('[Home] Ride request details:', { pickupLat, pickupLng, dropLat, dro
         setIsUpdatingStatus(true);
 
         if (nextState) {
-            if (!homeData?.driver.isApproved) {
+            // Refetch home data to check latest approval status
+            const data = await loadHomeData();
+            
+            if (!data?.driver.isApproved) {
                 Alert.alert(
                     'Account Pending Approval',
                     'Your documents are being reviewed. You will be able to go online once the admin approves your account.',

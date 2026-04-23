@@ -106,6 +106,10 @@ export interface SignupData {
   email?: string;
   vehicleNumber?: string;
   licenseNumber?: string;
+  photoUrl?: string;
+  licensePhotoUrl?: string;
+  aadhaarCardPhotoUrl?: string;
+  rcPhotoUrl?: string;
 }
 
 export interface SignupResponse {

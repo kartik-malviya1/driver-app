@@ -12,7 +12,7 @@ import '@/global.css';
 
 function RootLayoutNav() {
     const { isAuthenticated, loading: authLoading } = useAuth();
-    const { state: onboarding, loading: onboardingLoading } = useOnboarding();
+    const { state: onboarding, loading: onboardingLoading, isFlowReady, completeOnboarding } = useOnboarding();
     const segments = useSegments() as unknown as string[];
     const router = useRouter();
 
@@ -30,11 +30,25 @@ function RootLayoutNav() {
                     router.replace('/home');
                 }
             } else {
-                if (segments[0] === 'home' || inAuthGroup || onSplash) {
-                    if (onboarding.vehicleType) {
-                        router.replace('/(onboarding)/checklist');
-                    } else {
-                        router.replace('/(onboarding)/vehicle-type');
+                // Check if flow is actually ready (all documents done and info present)
+                if (isFlowReady) {
+                    // Try to silently complete/sync and move to home
+                    completeOnboarding()
+                        .then(() => router.replace('/home'))
+                        .catch(err => {
+                            console.error('Silent onboarding sync failed:', err);
+                            // If it fails, we still send them to checklist so they can see the error or try manually
+                            if (segments[0] !== '(onboarding)') {
+                                router.replace('/(onboarding)/checklist');
+                            }
+                        });
+                } else {
+                    if (segments[0] === 'home' || inAuthGroup || onSplash) {
+                        if (onboarding.vehicleType) {
+                            router.replace('/(onboarding)/checklist');
+                        } else {
+                            router.replace('/(onboarding)/vehicle-type');
+                        }
                     }
                 }
             }
@@ -49,13 +63,9 @@ function RootLayoutNav() {
 
     if (authLoading || onboardingLoading) {
         return (
-            
-    <GluestackUIProvider mode="dark">
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Theme.colors.white }}>
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Theme.colors.white }}>
                 <ActivityIndicator size="large" color={Theme.colors.green} />
             </View>
-    </GluestackUIProvider>
-  
         );
     }
 

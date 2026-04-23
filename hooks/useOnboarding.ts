@@ -10,6 +10,7 @@ const KEYS = {
     LICENSE_URL: '@driver_app/license_url',
     AADHAAR_URL: '@driver_app/aadhaar_url',
     PHOTO_URL: '@driver_app/photo_url',
+    RC_URL: '@driver_app/rc_url',
     DOCS: '@driver_app/docs',
     ONBOARDING_DONE: '@driver_app/onboarding_done',
     FULL_NAME: '@driver_app/full_name',
@@ -37,6 +38,7 @@ export interface OnboardingState {
     licensePhotoUrl: string | null;
     aadhaarCardPhotoUrl: string | null;
     photoUrl: string | null;
+    rcPhotoUrl: string | null;
     docs: Record<DocKey, DocStatus>;
     isOnboardingDone: boolean;
 }
@@ -52,6 +54,7 @@ function useOnboardingBase() {
         licensePhotoUrl: null,
         aadhaarCardPhotoUrl: null,
         photoUrl: null,
+        rcPhotoUrl: null,
         docs: DEFAULT_DOCS,
         isOnboardingDone: false,
     });
@@ -61,8 +64,8 @@ function useOnboardingBase() {
         try {
             const keys = [
                 KEYS.PHONE, KEYS.VEHICLE_TYPE, KEYS.VEHICLE_NUMBER, KEYS.LICENSE_NUMBER,
-                KEYS.LICENSE_URL, KEYS.AADHAAR_URL, KEYS.PHOTO_URL, KEYS.DOCS,
-                KEYS.ONBOARDING_DONE, KEYS.FULL_NAME, KEYS.EMAIL
+                KEYS.LICENSE_URL, KEYS.AADHAAR_URL, KEYS.PHOTO_URL, KEYS.RC_URL,
+                KEYS.DOCS, KEYS.ONBOARDING_DONE, KEYS.FULL_NAME, KEYS.EMAIL
             ];
             const results = await AsyncStorage.multiGet(keys);
             const map = Object.fromEntries(results.map(([k, v]) => [k, v]));
@@ -80,6 +83,7 @@ function useOnboardingBase() {
                 licensePhotoUrl: map[KEYS.LICENSE_URL] ?? null,
                 aadhaarCardPhotoUrl: map[KEYS.AADHAAR_URL] ?? null,
                 photoUrl: map[KEYS.PHOTO_URL] ?? null,
+                rcPhotoUrl: map[KEYS.RC_URL] ?? null,
                 docs: parsedDocs,
                 isOnboardingDone: map[KEYS.ONBOARDING_DONE] === 'true',
             });
@@ -125,6 +129,7 @@ function useOnboardingBase() {
         if (doc === 'driving_license') key = KEYS.LICENSE_URL;
         else if (doc === 'aadhaar') key = KEYS.AADHAAR_URL;
         else if (doc === 'profile_photo') key = KEYS.PHOTO_URL;
+        else if (doc === 'rc') key = KEYS.RC_URL;
 
         if (key) {
             await AsyncStorage.setItem(key, url);
@@ -133,6 +138,7 @@ function useOnboardingBase() {
                 if (doc === 'driving_license') newState.licensePhotoUrl = url;
                 else if (doc === 'aadhaar') newState.aadhaarCardPhotoUrl = url;
                 else if (doc === 'profile_photo') newState.photoUrl = url;
+                else if (doc === 'rc') newState.rcPhotoUrl = url;
                 return newState;
             });
         }
@@ -146,18 +152,27 @@ function useOnboardingBase() {
 
     const completeOnboarding = async () => {
         try {
-            await updateDriverAccount({
+            const payload = {
                 name: state.fullName || undefined,
                 vehicleNumber: state.vehicleNumber || undefined,
                 licenseNumber: state.licenseNumber || undefined,
                 photoUrl: state.photoUrl || undefined,
                 licensePhotoUrl: state.licensePhotoUrl || undefined,
                 aadhaarCardPhotoUrl: state.aadhaarCardPhotoUrl || undefined,
-            });
+                rcPhotoUrl: state.rcPhotoUrl || undefined,
+            };
+
+            // Only call update if there's something to update
+            if (Object.values(payload).some(v => v !== undefined)) {
+                await updateDriverAccount(payload);
+            }
+            
             await AsyncStorage.setItem(KEYS.ONBOARDING_DONE, 'true');
             setState(prev => ({ ...prev, isOnboardingDone: true }));
         } catch (error) {
             console.error('Failed to sync onboarding data with backend:', error);
+            // We still mark it as done locally if it's a specific "already done" or validation error from server
+            // but for now we let it throw so the UI can show an error
             throw error;
         }
     };
@@ -174,6 +189,7 @@ function useOnboardingBase() {
             licensePhotoUrl: null,
             aadhaarCardPhotoUrl: null,
             photoUrl: null,
+            rcPhotoUrl: null,
             docs: DEFAULT_DOCS,
             isOnboardingDone: false
         });
@@ -182,6 +198,7 @@ function useOnboardingBase() {
     // Computed helpers
     const completedCount = Object.values(state.docs).filter(s => s === 'completed' || s === 'in_review').length;
     const pendingCount = Object.values(state.docs).filter(s => s === 'pending').length;
+    const isFlowReady = pendingCount === 0 && !!state.fullName && !!state.vehicleNumber;
     const nextPendingDoc = (Object.entries(state.docs) as [DocKey, DocStatus][])
         .find(([, s]) => s === 'pending')?.[0] ?? null;
 
@@ -190,6 +207,7 @@ function useOnboardingBase() {
         loading,
         completedCount,
         pendingCount,
+        isFlowReady,
         nextPendingDoc,
         savePhone,
         saveFullName,
